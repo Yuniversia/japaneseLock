@@ -139,8 +139,9 @@ class MainActivity : AppCompatActivity() {
         checkAndRequestDeviceAdminPermission()
     }
 
+    // --- V3.0: ФУНКЦИЯ ОБНОВЛЕНА ---
     private fun setupUI() {
-        Log.d(DEBUG_TAG, "MainActivity: setupUI (v2.0)")
+        Log.d(DEBUG_TAG, "MainActivity: setupUI (v3.0)")
 
         val isEnabled = prefs.getBoolean("enabled", false)
         updateStatusUI(isEnabled)
@@ -149,18 +150,13 @@ class MainActivity : AppCompatActivity() {
         // Загружаем сохраненные настройки
         binding.intervalInput.setText(prefs.getInt("launch_interval_minutes", 30).toString())
         binding.autoLaunchCheckbox.isChecked = prefs.getBoolean("auto_launch_enabled", false)
-        binding.countSeekBar.progress = prefs.getInt("count", 5) - 1
-        binding.countText.text = "Вопросов за раз: ${prefs.getInt("count", 5)}"
+        // V3.0: Загружаем в новый EditText
+        binding.countInput.setText(prefs.getInt("count", 5).toString())
 
 
         // --- ОБРАБОТЧИКИ ---
-        binding.countSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                binding.countText.text = "Вопросов за раз: ${progress + 1}"
-            }
-            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-        })
+
+        // V3.0: SeekBar удален
 
         // --- КНОПКА "ВКЛЮЧИТЬ" (ИСПРАВЛЕНА) ---
         binding.enableButton.setOnClickListener {
@@ -178,15 +174,23 @@ class MainActivity : AppCompatActivity() {
             }
             // --- КОНЕЦ ПРОВЕРКИ ---
 
-            saveSettings()
-            prefs.edit().putBoolean("enabled", true).apply()
+            // V3.0: saveSettings() теперь асинхронный, запускаем и ждем
+            lifecycleScope.launch {
+                saveSettings() // Сначала сохраняем (с проверкой лимита)
 
-            prefs.edit().remove("next_launch_time").remove("should_launch").apply()
-            scheduleNextLaunch(this)
+                // Этот код выполнится ПОСЛЕ завершения saveSettings
+                prefs.edit().putBoolean("enabled", true).apply()
+                prefs.edit().remove("next_launch_time").remove("should_launch").apply()
+                scheduleNextLaunch(this@MainActivity)
 
-            startScreenService(true) // Теперь этот вызов безопасен
-            updateStatusUI(true)
-            Toast.makeText(this, "✅ Запущено! Интервал: ${binding.intervalInput.text} мин.", Toast.LENGTH_LONG).show()
+                startScreenService(true) // Теперь этот вызов безопасен
+                updateStatusUI(true)
+
+                // V3.0: Читаем обновленное значение (могло быть исправлено)
+                val finalInterval = prefs.getInt("launch_interval_minutes", 30)
+                val finalCount = prefs.getInt("count", 5)
+                Toast.makeText(this@MainActivity, "✅ Запущено! Интервал: $finalInterval мин. Вопросов: $finalCount", Toast.LENGTH_LONG).show()
+            }
         }
         // --- КОНЕЦ КНОПКИ "ВКЛЮЧИТЬ" ---
 
@@ -203,33 +207,40 @@ class MainActivity : AppCompatActivity() {
 
         binding.updateButton.setOnClickListener {
             Log.d(DEBUG_TAG, "MainActivity: UPDATE button clicked")
-            saveSettings()
 
-            if (prefs.getBoolean("enabled", false)) {
+            // V3.0: saveSettings() теперь асинхронный
+            lifecycleScope.launch {
+                saveSettings() // Сохраняем и проверяем лимиты
 
-                // --- НОВАЯ ПРОВЕРКА РАЗРЕШЕНИЯ (также для "Обновить") ---
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                        Log.e(DEBUG_TAG, "MainActivity: ПРОВАЛ ОБНОВЛЕНИЯ. Нет разрешения POST_NOTIFICATIONS.")
-                        Toast.makeText(this, "Сначала дайте разрешение на Уведомления!", Toast.LENGTH_LONG).show()
-                        checkAndRequestNotificationPermission()
-                        return@setOnClickListener
+                // V3.0: Читаем обновленные значения
+                val finalInterval = prefs.getInt("launch_interval_minutes", 30)
+                val finalCount = prefs.getInt("count", 5)
+
+                if (prefs.getBoolean("enabled", false)) {
+                    // --- НОВАЯ ПРОВЕРКА РАЗРЕШЕНИЯ (также для "Обновить") ---
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                            Log.e(DEBUG_TAG, "MainActivity: ПРОВАЛ ОБНОВЛЕНИЯ. Нет разрешения POST_NOTIFICATIONS.")
+                            Toast.makeText(this@MainActivity, "Сначала дайте разрешение на Уведомления!", Toast.LENGTH_LONG).show()
+                            checkAndRequestNotificationPermission()
+                            return@launch // V3.0: выходим из корутины
+                        }
                     }
+                    // --- КОНЕЦ ПРОВЕРКИ ---
+
+                    Log.d(DEBUG_TAG, "MainActivity: Сервис включен, перезапускаю таймер и сервис...")
+                    // Полный перезапуск
+                    startScreenService(false) // Сначала стоп
+                    cancelScheduledLaunches()
+
+                    scheduleNextLaunch(this@MainActivity) // Потом старт
+                    startScreenService(true)
+
+                    Toast.makeText(this@MainActivity, "🔄 Обновлено! Интервал: $finalInterval мин. Вопросов: $finalCount", Toast.LENGTH_LONG).show()
+                } else {
+                    Log.d(DEBUG_TAG, "MainActivity: Сервис выключен, просто сохраняю.")
+                    Toast.makeText(this@MainActivity, "Настройки сохранены", Toast.LENGTH_SHORT).show()
                 }
-                // --- КОНЕЦ ПРОВЕРКИ ---
-
-                Log.d(DEBUG_TAG, "MainActivity: Сервис включен, перезапускаю таймер и сервис...")
-                // Полный перезапуск
-                startScreenService(false) // Сначала стоп
-                cancelScheduledLaunches()
-
-                scheduleNextLaunch(this) // Потом старт
-                startScreenService(true)
-
-                Toast.makeText(this, "🔄 Обновлено! Интервал: ${binding.intervalInput.text} мин.", Toast.LENGTH_LONG).show()
-            } else {
-                Log.d(DEBUG_TAG, "MainActivity: Сервис выключен, просто сохраняю.")
-                Toast.makeText(this, "Настройки сохранены", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -246,20 +257,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun saveSettings() {
-        Log.d(DEBUG_TAG, "MainActivity: saveSettings")
+    // --- V3.0: ФУНКЦИЯ ПЕРЕПИСАНА (стала suspend) ---
+    private suspend fun saveSettings() {
+        Log.d(DEBUG_TAG, "MainActivity: saveSettings (suspend)")
 
         // 1. Сохраняем базовые настройки
         val interval = binding.intervalInput.text.toString().toIntOrNull() ?: 30
-        val count = binding.countSeekBar.progress + 1
+        var count = binding.countInput.text.toString().toIntOrNull() ?: 5
         val autoLaunch = binding.autoLaunchCheckbox.isChecked
-
-        prefs.edit().apply {
-            putInt("launch_interval_minutes", interval)
-            putInt("count", count)
-            putBoolean("auto_launch_enabled", autoLaunch)
-            apply()
-        }
 
         // 2. Сохраняем выбраные колоды
         val selectedDeckIds = mutableSetOf<String>()
@@ -272,8 +277,44 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-
         prefs.edit().putStringSet("selected_deck_ids", selectedDeckIds).apply()
+
+        // 3. V3.0: Проверка лимита вопросов
+        val selectedIdsAsLong = selectedDeckIds.mapNotNull { it.toLongOrNull() }
+        if (selectedIdsAsLong.isNotEmpty()) {
+            // Запускаем асинхронный запрос к БД
+            val (baseCount, invertedCount) = withContext(Dispatchers.IO) {
+                val base = db.cardDao().getCardCountForDecks(selectedIdsAsLong)
+                val inverted = db.cardDao().getInvertibleCardCountForDecks(selectedIdsAsLong)
+                Pair(base, inverted) // Возвращаем пару значений
+            }
+
+            val maxQuestions = baseCount + invertedCount
+            if (count > maxQuestions && maxQuestions > 0) {
+                Log.w(DEBUG_TAG, "MainActivity: Лимит вопросов превышен. Запрошено: $count, Доступно: $maxQuestions. Устанавливаю максимум.")
+                count = maxQuestions
+                // Обновляем UI, так как мы в корутине
+                withContext(Dispatchers.Main) {
+                    binding.countInput.setText(count.toString())
+                    Toast.makeText(this@MainActivity, "Лимит вопросов исправлен на $count (максимум для выбраных колод)", Toast.LENGTH_SHORT).show()
+                }
+            }
+        } else if (count > 0) {
+            Log.w(DEBUG_TAG, "MainActivity: Колоды не выбраны, устанавливаю лимит 0")
+            count = 0 // Нельзя задавать вопросы, если нет колод
+            withContext(Dispatchers.Main) {
+                binding.countInput.setText("0")
+            }
+        }
+
+        // 4. Сохраняем финальные значения
+        prefs.edit().apply {
+            putInt("launch_interval_minutes", interval)
+            putInt("count", count) // Сохраняем исправленное значение
+            putBoolean("auto_launch_enabled", autoLaunch)
+            apply()
+        }
+
         Log.d(DEBUG_TAG, "Настройки сохранены (Interval: $interval, Count: $count, Auto: $autoLaunch)")
         Log.d(DEBUG_TAG, "Выбранные колоды: $selectedDeckIds")
     }

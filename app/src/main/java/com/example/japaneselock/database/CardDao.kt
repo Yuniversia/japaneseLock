@@ -34,13 +34,25 @@ interface CardDao {
     @Query("SELECT * FROM cards WHERE deckId = :deckId ORDER BY question ASC")
     suspend fun getCardsForDeck(deckId: Long): List<Card>
 
-    // --- Логика блокировки ---
+    // --- V3.0: Новые методы для проверки лимита ---
+    @Query("SELECT COUNT(id) FROM cards WHERE deckId IN (:selectedDeckIds)")
+    suspend fun getCardCountForDecks(selectedDeckIds: List<Long>): Int
+
+    @Query("SELECT COUNT(id) FROM cards WHERE deckId IN (:selectedDeckIds) AND isInvertible = 1")
+    suspend fun getInvertibleCardCountForDecks(selectedDeckIds: List<Long>): Int
+    // --- Конец V3.0 ---
+
+
+    // --- Логика блокировки (V3.0: Запрос обновлен) ---
     @Query("""
         SELECT 
             c.id as cardId, 
             c.question, 
             c.answer, 
-            d.name as deckName 
+            d.name as deckName,
+            c.reading,
+            c.isInvertible,
+            c.isReadingCheck
         FROM cards c
         JOIN decks d ON c.deckId = d.id
         WHERE c.deckId IN (:selectedDeckIds) AND c.id NOT IN (:usedCardIds)

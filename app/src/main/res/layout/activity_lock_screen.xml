@@ -3,74 +3,138 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true"
-    android:background="#121212"> <LinearLayout
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="24dp"
-    android:gravity="center"
     android:background="#121212">
 
-    <TextView
-        android:id="@+id/deckNameText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text=""
-        android:textSize="14sp"
-        android:textColor="#AAAAAA"
-        android:layout_marginBottom="8dp"/>
-
-    <TextView
-        android:id="@+id/progressText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Вопрос 1 из 5"
-        android:textSize="16sp"
-        android:layout_marginBottom="32dp"
-        android:textColor="#AAAAAA"/>
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Что это за символ?"
-        android:textSize="18sp"
-        android:layout_marginBottom="16dp"
-        android:textColor="#FFFFFF"/>
-
-    <TextView
-        android:id="@+id/characterText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="…"
-        android:textSize="120sp"
-        android:textStyle="bold"
-        android:layout_marginBottom="32dp"
-        android:textColor="#FFFFFF"/>
-
-    <EditText
-        android:id="@+id/answerInput"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="Введите romaji"
-        android:inputType="text"
-        android:imeOptions="actionDone"
-        android:textSize="18sp"
-        android:padding="16dp"
-        android:layout_marginBottom="16dp"
-        android:textColor="#FFFFFF"
-        android:textColorHint="#888888"
-        android:backgroundTint="#FFFFFF"/>
+        android:orientation="vertical"
+        android:padding="24dp"
+        android:gravity="center"
+        android:background="#121212">
 
-    <Button
-        android:id="@+id/submitButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Проверить"
-        android:textSize="18sp"
-        android:padding="16dp"
-        android:layout_marginBottom="16dp"/>
+        <LinearLayout
+            android:id="@+id/studyContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:visibility="gone"> <TextView
+            android:id="@+id/studyTitleText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Изучение нового"
+            android:textSize="18sp"
+            android:textColor="#AAAAAA"
+            android:layout_marginBottom="32dp"/>
 
-    <TextView
+            <TextView
+                android:id="@+id/studyCharacterText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="あ"
+                android:textSize="120sp"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:layout_marginBottom="32dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Чтение:"
+                android:textSize="16sp"
+                android:textColor="#AAAAAA" />
+            <TextView
+                android:id="@+id/studyReadingText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="a"
+                android:textSize="28sp"
+                android:textColor="#81D4FA" /> <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Перевод / Ответ:"
+                android:textSize="16sp"
+                android:textColor="#AAAAAA"
+                android:layout_marginTop="16dp"/>
+            <TextView
+                android:id="@+id/studyAnswerText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="a"
+                android:textSize="28sp"
+                android:textColor="#A5D6A7" /> </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/quizContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:visibility="visible">
+
+            <TextView
+                android:id="@+id/deckNameText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textSize="14sp"
+                android:textColor="#AAAAAA"
+                android:layout_marginBottom="8dp"/>
+
+            <TextView
+                android:id="@+id/progressText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Вопрос 1 из 5"
+                android:textSize="16sp"
+                android:layout_marginBottom="32dp"
+                android:textColor="#AAAAAA"
+                android:gravity="center"/>
+
+            <TextView
+                android:id="@+id/questionTitleText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Что это за символ?"
+                android:textSize="18sp"
+                android:layout_marginBottom="16dp"
+                android:textColor="#FFFFFF"/>
+
+            <TextView
+                android:id="@+id/characterText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="…"
+                android:textSize="120sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="32dp"
+                android:textColor="#FFFFFF"/>
+
+            <EditText
+                android:id="@+id/answerInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Введите romaji"
+                android:inputType="text"
+                android:imeOptions="actionDone"
+                android:textSize="18sp"
+                android:padding="16dp"
+                android:layout_marginBottom="16dp"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#888888"
+                android:backgroundTint="#FFFFFF"/>
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/submitButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Проверить"
+            android:textSize="18sp"
+            android:padding="16dp"
+            android:layout_marginBottom="16dp"
+            android:layout_marginTop="16dp"/> <TextView
         android:id="@+id/timerText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -78,5 +142,5 @@
         android:textSize="16sp"
         android:textColor="#FF5555"/>
 
-</LinearLayout>
+    </LinearLayout>
 </ScrollView>

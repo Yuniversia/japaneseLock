@@ -126,6 +126,7 @@ class CardListActivity : AppCompatActivity() {
             .show()
     }
 
+    // --- V3.0: ФУНКЦИЯ ОБНОВЛЕНА ---
     private fun showAddOrEditCardDialog(card: Card?) {
         // Используем ViewBinding для макета диалога
         val dialogBinding = DialogEditCardBinding.inflate(LayoutInflater.from(this))
@@ -135,29 +136,55 @@ class CardListActivity : AppCompatActivity() {
         if (isEditing) {
             dialogBinding.editQuestion.setText(card?.question)
             dialogBinding.editAnswer.setText(card?.answer)
+            // V3.0: Загружаем новые поля
+            dialogBinding.editReading.setText(card?.reading)
+            dialogBinding.checkInvertible.isChecked = card?.isInvertible ?: false
+            dialogBinding.checkReadingCheck.isChecked = card?.isReadingCheck ?: false
         }
 
-        AlertDialog.Builder(this) // Убрана ссылка на несуществующую тему
+        AlertDialog.Builder(this)
             .setTitle(title)
             .setView(dialogBinding.root)
             .setPositiveButton("Сохранить") { _, _ ->
                 val question = dialogBinding.editQuestion.text.toString()
                 val answer = dialogBinding.editAnswer.text.toString()
+                // V3.0: Получаем новые поля
+                val reading = dialogBinding.editReading.text.toString().takeIf { it.isNotBlank() } // null если пусто
+                val isInvertible = dialogBinding.checkInvertible.isChecked
+                val isReadingCheck = dialogBinding.checkReadingCheck.isChecked
 
                 if (question.isBlank() || answer.isBlank()) {
-                    Toast.makeText(this, "Поля не могут быть пустыми", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Поля 'Вопрос' и 'Ответ' не могут быть пустыми", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+
+                if (isReadingCheck && reading.isNullOrBlank()) {
+                    Toast.makeText(this, "Поле 'Чтение' должно быть заполнено, если включена 'Проверка чтения'", Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
 
                 lifecycleScope.launch(Dispatchers.IO) {
                     if (isEditing) {
                         // Обновляем существующую
-                        val updatedCard = card!!.copy(question = question, answer = answer)
+                        val updatedCard = card!!.copy(
+                            question = question,
+                            answer = answer,
+                            reading = reading,
+                            isInvertible = isInvertible,
+                            isReadingCheck = isReadingCheck
+                        )
                         db.cardDao().updateCard(updatedCard)
                         Log.d(DEBUG_TAG, "CardListActivity: Карточка ${card.id} обновлена")
                     } else {
                         // Создаем новую
-                        val newCard = Card(deckId = deckId, question = question, answer = answer)
+                        val newCard = Card(
+                            deckId = deckId,
+                            question = question,
+                            answer = answer,
+                            reading = reading,
+                            isInvertible = isInvertible,
+                            isReadingCheck = isReadingCheck
+                        )
                         db.cardDao().insertCard(newCard)
                         Log.d(DEBUG_TAG, "CardListActivity: Новая карточка создана")
                     }

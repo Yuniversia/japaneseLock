@@ -10,7 +10,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
+import android.os.Handler // V3.2: Импорт для задержки
 import android.os.IBinder
+import android.os.Looper // V3.2: Импорт для задержки
 import android.telephony.TelephonyManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -19,6 +21,10 @@ class ScreenListenerService : Service() {
 
     private val DEBUG_TAG = "DEBUG_LOCK"
     private val CHANNEL_ID = "ScreenListenerServiceChannel"
+
+    // --- V3.2: Handler для задержки запуска ---
+    private val handler = Handler(Looper.getMainLooper())
+    // --- Конец V3.2 ---
 
     // Это наш "слушатель", который будет создан и уничтожен вместе с сервисом
     // Он содержит ВСЮ ОРИГИНАЛЬНУЮ ЛОГИКУ из вашего LockScreenReceiver.kt
@@ -33,6 +39,11 @@ class ScreenListenerService : Service() {
                     Log.d(DEBUG_TAG, "=======================================")
                     Log.d(DEBUG_TAG, "ScreenListenerService: ПОЛУЧЕНО СОБЫТИЕ: ACTION_SCREEN_OFF")
                     prefs.edit().putBoolean("screen_was_off", true).apply()
+
+                    // --- V3.2: Отменяем любые "ждущие" запуски, если экран выключился
+                    handler.removeCallbacksAndMessages(null)
+                    Log.d(DEBUG_TAG, "ScreenListenerService: Pending launches cancelled.")
+                    // --- Конец V3.2 ---
                 }
 
                 Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT -> {
@@ -55,7 +66,7 @@ class ScreenListenerService : Service() {
 
                     if (timeHasCome) {
                         val launchAction = {
-                            Log.d(DEBUG_TAG, "ScreenListenerService: Вызов LockScreenLauncher.launch()...")
+                            Log.d(DEBUG_TAG, "ScreenListenerService: (launchAction) Вызов LockScreenLauncher.launch()...")
                             // ИСПОЛЬЗУЕМ ОБЩИЙ ЗАПУСК
                             LockScreenLauncher.launch(context, "Service")
                             // Сбрасываем флаги и время
@@ -68,20 +79,35 @@ class ScreenListenerService : Service() {
                             MainActivity.scheduleNextLaunch(context)
                         }
 
-                        // Режим БЕЗ галочки (только при цикле "погас/включился")
-                        if (!autoLaunchEnabled) {
-                            if (screenWasOff) {
-                                Log.d(DEBUG_TAG, "ScreenListenerService: Launching (cycle mode)")
-                                launchAction()
+                        // --- V3.2: Логика задержки ---
+                        val runnableToLaunch = {
+                            Log.d(DEBUG_TAG, "ScreenListenerService: (Delayed 500ms) Проверка запуска...")
+
+                            // (Оригинальная логика if/else)
+                            if (!autoLaunchEnabled) {
+                                // V3.2: Мы должны ПЕРЕПРОВЕРИТЬ screenWasOff
+                                val currentScreenWasOff = prefs.getBoolean("screen_was_off", false)
+
+                                if (currentScreenWasOff) {
+                                    Log.d(DEBUG_TAG, "ScreenListenerService: (Delayed) Launching (cycle mode)")
+                                    launchAction()
+                                } else {
+                                    Log.d(DEBUG_TAG, "ScreenListenerService: (Delayed) Skipped (cycle mode) - screen was not off")
+                                }
                             } else {
-                                Log.d(DEBUG_TAG, "ScreenListenerService: Skipped (cycle mode) - screen was not off")
+                                Log.d(DEBUG_TAG, "ScreenListenerService: (Delayed) Launching (auto mode on screen on)")
+                                launchAction()
                             }
                         }
-                        // Режим С галочкой (в любой момент при включении экрана)
-                        else {
-                            Log.d(DEBUG_TAG, "ScreenListenerService: Launching (auto mode on screen on)")
+
+
+
+                        // V3.2: Добавляем задержку 500мс, чтобы AudioManager успел обновиться
+                        Log.d(DEBUG_TAG, "ScreenListenerService: Time has come. Posting delayed launch (500ms).")
+                        handler.postDelayed({
+                            Log.d(DEBUG_TAG, "ScreenListenerService: (Delayed) Launching (auto mode on screen on)")
                             launchAction()
-                        }
+                        }, 500)
                     }
                 }
             }
@@ -146,42 +172,18 @@ class ScreenListenerService : Service() {
         // Обязательно "отписываемся" от событий
         unregisterReceiver(screenReceiver)
         Log.d(DEBUG_TAG, "ScreenListenerService: Динамический screenReceiver ОТКЛЮЧЕН.")
+        // V3.2: Очищаем handler
+        handler.removeCallbacksAndMessages(null)
     }
 
     override fun onBind(intent: Intent): IBinder? {
         return null
     }
 
-    // --- Функция запуска (с проверкой на звонок) ---
+    // --- Эта функция (launchLockScreen) больше не используется в этом классе (с V3.0)
+    // --- Вся логика теперь в LockScreenLauncher.kt
     private fun launchLockScreen(context: Context) {
-        Log.d(DEBUG_TAG, "--- (Service) launchLockScreen: Функция вызвана ---")
-
-        // Проверка: идет ли звонок?
-        try {
-            val telephonyManager = context.getSystemService(Context.TELEPHONY_SERVICE)
-                    as TelephonyManager
-            val callState = telephonyManager.callState
-            if (callState != TelephonyManager.CALL_STATE_IDLE) {
-                Log.w(DEBUG_TAG, "--- (Service) launchLockScreen: ПРОВАЛ. Идет телефонный звонок.")
-                return
-            }
-        } catch (e: SecurityException) {
-            Log.e(DEBUG_TAG, "--- (Service) launchLockScreen: Ошибка проверки звонка (нет 'READ_PHONE_STATE'?) ${e.message}")
-            // В этом случае лучше не запускать, чтобы не мешать звонку
-            return
-        } catch (e: Exception) {
-            Log.e(DEBUG_TAG, "--- (Service) launchLockScreen: Неизвестная ошибка TelephonyManager: ${e.message}")
-            return // Не рискуем
-        }
-
-        Log.d(DEBUG_TAG, "--- (Service) launchLockScreen: Вызываю context.startActivity(LockScreenActivity)...")
-        try {
-            val lockIntent = Intent(context, LockScreenActivity::class.java)
-            lockIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            context.startActivity(lockIntent)
-            Log.d(DEBUG_TAG, "--- (Service) launchLockScreen: Вызов startActivity() ЗАВЕРШЕН.")
-        } catch (e: Exception) {
-            Log.e(DEBUG_TAG, "--- (Service) launchLockScreen: КРИТИЧЕСКАЯ ОШИБКА: ${e.message}")
-        }
+        Log.d(DEBUG_TAG, "--- (Service) launchLockScreen: Функция вызвана (НО НЕ ДОЛЖНА ИСПОЛЬЗОВАТЬСЯ) ---")
+        LockScreenLauncher.launch(context, "Service (Old)")
     }
 }

@@ -43,41 +43,64 @@
             android:layout_marginBottom="24dp"
             android:visibility="gone"/>
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Интервал запуска (в минутах):"
-            android:textSize="16sp"
-            android:layout_marginBottom="8dp"
-            android:textColor="#DDDDDD"/>
-
-        <EditText
-            android:id="@+id/intervalInput"
-            android:layout_width="100dp"
-            android:layout_height="wrap_content"
-            android:inputType="number"
-            android:text="30"
-            android:gravity="center"
-            android:textColor="#FFFFFF"
-            android:backgroundTint="#FFFFFF"
-            android:layout_marginBottom="24dp"/>
-
-        <TextView
-            android:id="@+id/countText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Вопросов за раз: 5"
-            android:textSize="16sp"
-            android:layout_marginBottom="8dp"
-            android:textColor="#DDDDDD"/>
-
-        <SeekBar
-            android:id="@+id/countSeekBar"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:max="19"
-            android:progress="4"
-            android:layout_marginBottom="24dp"/>
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="24dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Интервал (минут):"
+                    android:textSize="16sp"
+                    android:layout_marginBottom="8dp"
+                    android:textColor="#DDDDDD"/>
+
+                <EditText
+                    android:id="@+id/intervalInput"
+                    android:layout_width="100dp"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:text="30"
+                    android:gravity="center"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#FFFFFF" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Вопросов за раз:"
+                    android:textSize="16sp"
+                    android:layout_marginBottom="8dp"
+                    android:textColor="#DDDDDD"/>
+
+                <EditText
+                    android:id="@+id/countInput"
+                    android:layout_width="100dp"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:text="5"
+                    android:gravity="center"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#FFFFFF" />
+            </LinearLayout>
+        </LinearLayout>
+
 
         <CheckBox
             android:id="@+id/autoLaunchCheckbox"
@@ -160,7 +183,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Пароль для разблокировки: pass"
+            android:text="Пароль для разблокировки: pass (3 раза в день)"
             android:textSize="12sp"
             android:layout_marginTop="16dp"
             android:textStyle="italic"
