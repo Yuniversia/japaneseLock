@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingTop="24dp"
+    android:paddingStart="24dp"
+    android:paddingEnd="24dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/layoutQuestion"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:hint="Вопрос (напр. あ)">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/editQuestion"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="text"
+                android:textColor="#FFFFFF"/>
+
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/layoutAnswer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Ответ (напр. a)">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/editAnswer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="text"
+                android:textColor="#FFFFFF"/>
+
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/layoutSound"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:visibility="gone"
+            android:hint="Звучание (напр. kun'yomi)">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/editSound"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="text"
+                android:textColor="#FFFFFF"/>
+
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <LinearLayout
+            android:id="@+id/checkboxContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone"
+            android:layout_marginTop="16dp">
+
+            <CheckBox
+                android:id="@+id/checkInvert"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Инвертировать ответ (Ответ -> Вопрос)"
+                android:textColor="#DDDDDD"/>
+
+            <CheckBox
+                android:id="@+id/checkSound"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Проверять также звучание"
+                android:textColor="#DDDDDD"/>
+
+        </LinearLayout>
+
+        <CheckBox
+            android:id="@+id/checkInvertReading"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Инвертировать ответ (Чтение -> Текст)"
+            android:textColor="#DDDDDD"
+            android:visibility="gone"
+            android:layout_marginTop="16dp"/>
+
+    </LinearLayout>
+</ScrollView>

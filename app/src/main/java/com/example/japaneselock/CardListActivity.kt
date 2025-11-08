@@ -12,8 +12,9 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.example.japaneselock.database.AppDatabase
 import com.example.japaneselock.database.Card
+import com.example.japaneselock.database.CardType
 import com.example.japaneselock.databinding.ActivityCardListBinding
-import com.example.japaneselock.databinding.DialogEditCardBinding
+import com.example.japaneselock.databinding.DialogAddEditCardBinding // <-- ИЗМЕНЕН ИМПОРТ
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -34,7 +35,6 @@ class CardListActivity : AppCompatActivity() {
         setContentView(binding.root)
         db = AppDatabase.getDatabase(this)
 
-        // Получаем ID и Название колоды из MainActivity
         deckId = intent.getLongExtra("DECK_ID", -1L)
         deckName = intent.getStringExtra("DECK_NAME") ?: "Колода"
 
@@ -50,7 +50,8 @@ class CardListActivity : AppCompatActivity() {
         setupRecyclerView()
 
         binding.fabAddCard.setOnClickListener {
-            showAddOrEditCardDialog(null)
+            // (Req 2) - Показываем выбор типа карточки
+            showCardTypeSelectionDialog()
         }
 
         loadCards()
@@ -59,18 +60,17 @@ class CardListActivity : AppCompatActivity() {
     private fun setupToolbar() {
         binding.toolbar.title = deckName
         binding.toolbar.setNavigationOnClickListener {
-            finish() // Кнопка "Назад"
+            finish()
         }
     }
 
     private fun setupRecyclerView() {
         cardAdapter = CardAdapter(
             emptyList(),
-            // Лямбда-функция для "Редактировать"
             onEditClick = { card ->
+                // (Req 2) - Логика редактирования
                 showAddOrEditCardDialog(card)
             },
-            // Лямбда-функция для "Удалить"
             onDeleteClick = { card ->
                 showDeleteCardDialog(card)
             }
@@ -82,31 +82,19 @@ class CardListActivity : AppCompatActivity() {
     private fun loadCards() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                Log.d(DEBUG_TAG, "CardListActivity: Загрузка карточек...")
                 val cards = db.cardDao().getCardsForDeck(deckId)
-
                 withContext(Dispatchers.Main) {
                     try {
                         cardAdapter.updateData(cards)
-
-                        if (cards.isEmpty()) {
-                            binding.emptyView.visibility = View.VISIBLE
-                            binding.cardRecyclerView.visibility = View.GONE
-                        } else {
-                            binding.emptyView.visibility = View.GONE
-                            binding.cardRecyclerView.visibility = View.VISIBLE
-                        }
+                        binding.emptyView.visibility = if (cards.isEmpty()) View.VISIBLE else View.GONE
+                        binding.cardRecyclerView.visibility = if (cards.isEmpty()) View.GONE else View.VISIBLE
                         Log.d(DEBUG_TAG, "CardListActivity: Загружено ${cards.size} карточек")
                     } catch (e: Exception) {
                         Log.e(DEBUG_TAG, "CardListActivity: Ошибка обновления UI", e)
-                        Toast.makeText(this@CardListActivity, "Ошибка отображения карточек", Toast.LENGTH_SHORT).show()
                     }
                 }
             } catch (e: Exception) {
                 Log.e(DEBUG_TAG, "CardListActivity: Ошибка загрузки из БД", e)
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(this@CardListActivity, "Ошибка загрузки карточек", Toast.LENGTH_SHORT).show()
-                }
             }
         }
     }
@@ -119,74 +107,122 @@ class CardListActivity : AppCompatActivity() {
                 lifecycleScope.launch(Dispatchers.IO) {
                     db.cardDao().deleteCard(card)
                     Log.d(DEBUG_TAG, "CardListActivity: Карточка ${card.id} удалена")
-                    loadCards() // Обновляем список
+                    loadCards()
                 }
             }
             .setNegativeButton("Отмена", null)
             .show()
     }
 
-    // --- V3.0: ФУНКЦИЯ ОБНОВЛЕНА ---
-    private fun showAddOrEditCardDialog(card: Card?) {
-        // Используем ViewBinding для макета диалога
-        val dialogBinding = DialogEditCardBinding.inflate(LayoutInflater.from(this))
-        val isEditing = (card != null)
-        val title = if (isEditing) "Редактировать карточку" else "Добавить карточку"
+    // --- (Req 2) НОВАЯ ЛОГИКА ДОБАВЛЕНИЯ КАРТОЧЕК ---
 
+    private fun showCardTypeSelectionDialog() {
+        val cardTypes = arrayOf("Слог", "Кандзи", "Слово", "Чтение")
+        AlertDialog.Builder(this)
+            .setTitle("Что вы хотите добавить?")
+            .setItems(cardTypes) { _, which ->
+                val cardType = when (which) {
+                    0 -> CardType.SYLLABLE
+                    1 -> CardType.KANJI
+                    2 -> CardType.WORD
+                    3 -> CardType.READING
+                    else -> CardType.SYLLABLE
+                }
+                showAddOrEditCardDialog(null, cardType)
+            }
+            .show()
+    }
+
+    private fun showAddOrEditCardDialog(card: Card?, cardType: String = CardType.SYLLABLE) {
+        val dialogBinding = DialogAddEditCardBinding.inflate(LayoutInflater.from(this))
+        val isEditing = (card != null)
+        val type = if (isEditing) card!!.cardType else cardType
+        val title = if (isEditing) "Редактировать" else "Добавить"
+
+        // Настраиваем UI в зависимости от типа
+        when (type) {
+            CardType.SYLLABLE -> {
+                dialogBinding.layoutQuestion.hint = "Слог (напр. あ)"
+                dialogBinding.layoutAnswer.hint = "Ответ (напр. a)"
+            }
+            CardType.KANJI -> {
+                dialogBinding.layoutQuestion.hint = "Кандзи (напр. 日)"
+                dialogBinding.layoutAnswer.hint = "Ответ (напр. Солнце)"
+                dialogBinding.layoutSound.visibility = View.VISIBLE
+                dialogBinding.checkboxContainer.visibility = View.VISIBLE
+            }
+            CardType.WORD -> {
+                dialogBinding.layoutQuestion.hint = "Слово (напр. 日本)"
+                dialogBinding.layoutAnswer.hint = "Ответ (напр. Япония)"
+                dialogBinding.layoutSound.visibility = View.VISIBLE
+                dialogBinding.layoutSound.hint = "Звучание (напр. にほん)"
+                dialogBinding.checkboxContainer.visibility = View.VISIBLE
+            }
+            CardType.READING -> {
+                dialogBinding.layoutQuestion.hint = "Текст (напр. 食べる)"
+                dialogBinding.layoutAnswer.hint = "Чтение (напр. たべる)"
+                dialogBinding.checkInvertReading.visibility = View.VISIBLE
+            }
+        }
+
+        // Заполняем данными, если это редактирование
         if (isEditing) {
-            dialogBinding.editQuestion.setText(card?.question)
-            dialogBinding.editAnswer.setText(card?.answer)
-            // V3.0: Загружаем новые поля
-            dialogBinding.editReading.setText(card?.reading)
-            dialogBinding.checkInvertible.isChecked = card?.isInvertible ?: false
-            dialogBinding.checkReadingCheck.isChecked = card?.isReadingCheck ?: false
+            dialogBinding.editQuestion.setText(card!!.question)
+            dialogBinding.editAnswer.setText(card.answer)
+            dialogBinding.editSound.setText(card.sound ?: "")
+            dialogBinding.checkInvert.isChecked = card.invertAnswer
+            dialogBinding.checkSound.isChecked = card.checkSound
+            dialogBinding.checkInvertReading.isChecked = card.invertAnswer
         }
 
         AlertDialog.Builder(this)
-            .setTitle(title)
+            .setTitle("$title: ${type.lowercase().capitalize()}")
             .setView(dialogBinding.root)
             .setPositiveButton("Сохранить") { _, _ ->
                 val question = dialogBinding.editQuestion.text.toString()
                 val answer = dialogBinding.editAnswer.text.toString()
-                // V3.0: Получаем новые поля
-                val reading = dialogBinding.editReading.text.toString().takeIf { it.isNotBlank() } // null если пусто
-                val isInvertible = dialogBinding.checkInvertible.isChecked
-                val isReadingCheck = dialogBinding.checkReadingCheck.isChecked
+                val sound = dialogBinding.editSound.text.toString()
 
                 if (question.isBlank() || answer.isBlank()) {
-                    Toast.makeText(this, "Поля 'Вопрос' и 'Ответ' не могут быть пустыми", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Вопрос и Ответ не могут быть пустыми", Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
 
-                if (isReadingCheck && reading.isNullOrBlank()) {
-                    Toast.makeText(this, "Поле 'Чтение' должно быть заполнено, если включена 'Проверка чтения'", Toast.LENGTH_SHORT).show()
+                // Проверка для Кандзи/Слов
+                if ((type == CardType.KANJI || type == CardType.WORD) && sound.isBlank()) {
+                    Toast.makeText(this, "Звучание обязательно для Кандзи и Слов", Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
 
                 lifecycleScope.launch(Dispatchers.IO) {
-                    if (isEditing) {
-                        // Обновляем существующую
-                        val updatedCard = card!!.copy(
+                    val cardToSave = if (isEditing) {
+                        card!!.copy(
                             question = question,
                             answer = answer,
-                            reading = reading,
-                            isInvertible = isInvertible,
-                            isReadingCheck = isReadingCheck
+                            cardType = type,
+                            sound = if (sound.isBlank()) null else sound,
+                            invertAnswer = if (type == CardType.READING) dialogBinding.checkInvertReading.isChecked else dialogBinding.checkInvert.isChecked,
+                            checkSound = if (type == CardType.KANJI || type == CardType.WORD) dialogBinding.checkSound.isChecked else false
                         )
-                        db.cardDao().updateCard(updatedCard)
-                        Log.d(DEBUG_TAG, "CardListActivity: Карточка ${card.id} обновлена")
                     } else {
-                        // Создаем новую
-                        val newCard = Card(
+                        Card(
                             deckId = deckId,
                             question = question,
                             answer = answer,
-                            reading = reading,
-                            isInvertible = isInvertible,
-                            isReadingCheck = isReadingCheck
+                            cardType = type,
+                            sound = if (sound.isBlank()) null else sound,
+                            invertAnswer = if (type == CardType.READING) dialogBinding.checkInvertReading.isChecked else dialogBinding.checkInvert.isChecked,
+                            checkSound = if (type == CardType.KANJI || type == CardType.WORD) dialogBinding.checkSound.isChecked else false,
+                            srsLevel = 0,
+                            srsLevelInverted = 0,
+                            srsLevelSound = 0
                         )
-                        db.cardDao().insertCard(newCard)
-                        Log.d(DEBUG_TAG, "CardListActivity: Новая карточка создана")
+                    }
+
+                    if (isEditing) {
+                        db.cardDao().updateCard(cardToSave)
+                    } else {
+                        db.cardDao().insertCard(cardToSave)
                     }
                     loadCards() // Обновляем список
                 }

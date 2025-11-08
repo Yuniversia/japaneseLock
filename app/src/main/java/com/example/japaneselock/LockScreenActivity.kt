@@ -1,5 +1,7 @@
 package com.example.japaneselock
 
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -7,6 +9,7 @@ import android.os.Bundle
 import android.os.CountDownTimer
 import android.os.PowerManager
 import android.util.Log
+import android.util.TypedValue
 import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
@@ -17,16 +20,15 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.example.japaneselock.database.AppDatabase
+import com.example.japaneselock.database.Card
+import com.example.japaneselock.database.CardType
 import com.example.japaneselock.database.CardWithDeck
 import com.example.japaneselock.databinding.ActivityLockScreenBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import android.app.admin.DevicePolicyManager
-import android.content.ComponentName
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.random.Random
 
 class LockScreenActivity : AppCompatActivity() {
@@ -34,39 +36,65 @@ class LockScreenActivity : AppCompatActivity() {
     private lateinit var prefs: android.content.SharedPreferences
     private lateinit var binding: ActivityLockScreenBinding
     private lateinit var db: AppDatabase
+    private lateinit var powerManager: PowerManager
+    private lateinit var dpm: DevicePolicyManager
+    private lateinit var adminComponent: ComponentName
 
-    private var currentQuestion = 0
+    private var currentQuestionIndex = 0
     private var totalQuestions = 0
     private var currentCard: CardWithDeck? = null
     private var failedAttempts = 0
     private var isTimerActive = false
     private var usedCardIds = mutableSetOf<Long>()
 
-    // --- V3.0: Новые поля состояния ---
-    private var isCurrentCardStudy = false
-    private var isCurrentCardInverted = false
-    private var isCurrentCardReadingCheck = false
-    // --- Конец V3.0 ---
+    // (Req 1, 3) - Переменные для логики SRS
+    private val SRS_LEVEL_REQUIRED_FOR_QUIZ = 3
+    private val MAX_SRS_LEVEL = 10
+    private val MIN_SRS_LEVEL = 0
+    private var currentQuizType = QuizType.QUESTION_TO_ANSWER // Тип текущего вопроса
+
+    // (Req 6) - ID карточек для постепенного режима
+    private var allowedCardIds = listOf<Long>()
 
     private val DEBUG_TAG = "DEBUG_LOCK"
-    private lateinit var powerManager: PowerManager
+
+    // Определяем типы вопросов
+    private enum class QuizType {
+        STUDY_CARD, // Показ карточки (Req 1)
+        QUESTION_TO_ANSWER, // Вопрос -> Ответ
+        ANSWER_TO_QUESTION, // Ответ -> Вопрос
+        QUESTION_TO_SOUND // Вопрос -> Звучание
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         Log.d(DEBUG_TAG, "***************************************************")
-        Log.d(DEBUG_TAG, "LockScreenActivity: onCreate - ЭКРАН УСПЕШНО ЗАПУЩЕН")
+        Log.d(DEBUG_TAG, "LockScreenActivity: onCreate - ЭКРАН УСПЕШНО ЗАПУЩЕН (v4.0)")
         Log.d(DEBUG_TAG, "***************************************************")
 
         binding = ActivityLockScreenBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
         powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        adminComponent = ComponentName(this, MyDeviceAdminReceiver::class.java)
+
         db = AppDatabase.getDatabase(this)
         prefs = getSharedPreferences("JapaneseLockPrefs", Context.MODE_PRIVATE)
         totalQuestions = prefs.getInt("count", 5)
 
-        // --- Настройки окна (Анти-побег) ---
+        setupWindow()
+        setupListeners()
+
+        // Запускаем процесс
+        lifecycleScope.launch {
+            // (Req 6) - Сначала определяем, какие карточки нам доступны
+            allowedCardIds = loadAllowedCardIds()
+            generateQuestion()
+        }
+    }
+
+    private fun setupWindow() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
@@ -76,175 +104,268 @@ class LockScreenActivity : AppCompatActivity() {
                         or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
             )
         }
-        window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS) // Для скрытия шторки
+        window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
         hideSystemUI()
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN)
-        // ---
-
-        setupLockScreen()
-        generateQuestion()
     }
 
-    private fun setupLockScreen() {
+    private fun setupListeners() {
         binding.answerInput.requestFocus()
 
         binding.submitButton.setOnClickListener {
             if (!isTimerActive) {
-                // V3.0: checkAnswer() теперь обрабатывает и "Изучил"
-                checkAnswer(binding.answerInput.text.toString().lowercase().trim())
+                checkAnswer(binding.answerInput.text.toString().trim())
             }
         }
 
         binding.answerInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
                 if (!isTimerActive) {
-                    checkAnswer(binding.answerInput.text.toString().lowercase().trim())
+                    checkAnswer(binding.answerInput.text.toString().trim())
                 }
                 true
-            } else {
-                false
-            }
+            } else false
+        }
+
+        // (Req 1) - Кнопка "Понятно" на карточке изучения
+        binding.studyGotItButton.setOnClickListener {
+            val card = currentCard ?: return@setOnClickListener
+
+            // Мы "увидели" карточку, увеличиваем ее srsLevel
+            // Если мы видим ее после ошибки, srsLevel УЖЕ 0, так что он станет 1.
+            // Если это новый, srsLevel был 0, станет 1. и т.д.
+            val newSrsLevel = min(card.srsLevel + 1, SRS_LEVEL_REQUIRED_FOR_QUIZ)
+            updateSrsLevel(card, QuizType.STUDY_CARD, true, newSrsLevel)
+
+            // Показываем следующий вопрос
+            generateQuestion()
         }
     }
 
-    // --- V3.1: ФУНКЦИЯ ОБНОВЛЕНА (ЛОГИКА UI И ИСПРАВЛЕНИЕ БАГА) ---
-    private fun generateQuestion() {
-        Log.d(DEBUG_TAG, "LockScreenActivity: generateQuestion (Вопрос ${currentQuestion + 1})")
-        val selectedIds = prefs.getStringSet("selected_deck_ids", null)
+    // (Req 6) - Загрузка ID карточек для постепенного режима
+    private suspend fun loadAllowedCardIds(): List<Long> {
+        val selectedIds = prefs.getStringSet("selected_deck_ids", null)?.map { it.toLong() } ?: emptyList()
+        if (selectedIds.isEmpty()) return emptyList()
 
-        if (selectedIds.isNullOrEmpty() || totalQuestions == 0) {
-            Log.e(DEBUG_TAG, "LockScreenActivity: Нет выбранных колод или totalQuestions = 0. Закрываюсь.")
-            Toast.makeText(this, "Нет выбранных колод!", Toast.LENGTH_SHORT).show()
+        // Берем настройки из ПЕРВОЙ колоды (предполагаем, что они одинаковые,
+        // или что пользователь использует одну колоду для постепенного режима)
+        val deck = db.cardDao().getDeckById(selectedIds.first())
+
+        // Если "Полное изучение" включено (по умолч.) ИЛИ колода не найдена,
+        // мы возвращаем "все" (пустой список ID, который DAO должен игнорировать)
+        // ИСПРАВЛЕНИЕ: Мы не можем вернуть "все", т.к. запрос требует IN.
+        // Мы должны вернуть ВСЕ ID из ВСЕХ колод.
+        // ...
+        // УПРОЩЕНИЕ: Если "Полное изучение" - используем запрос-заглушку.
+        if (deck == null || deck.fullStudy) {
+            return emptyList() // "emptyList" будет сигналом использовать getCardForQuiz-заглушку
+        }
+
+        // Логика "постепенного изучения" (Req 6)
+        val progressiveLevel = prefs.getInt("progressive_level_${deck.id}", 0) // Уровень (0 = первые 5, 1 = вторые 5 и т.д.)
+        val offset = progressiveLevel * deck.batchSize
+
+        // Загружаем ID для всех "разблокированных" уровней
+        val unlockedIds = mutableListOf<Long>()
+        for (i in 0..progressiveLevel) {
+            unlockedIds.addAll(
+                db.cardDao().getProgressiveCardIds(deck.id, deck.batchSize, i * deck.batchSize)
+            )
+        }
+        return unlockedIds
+    }
+
+
+    private fun generateQuestion() {
+        Log.d(DEBUG_TAG, "LockScreenActivity: generateQuestion (Вопрос ${currentQuestionIndex + 1})")
+
+        val selectedIds = prefs.getStringSet("selected_deck_ids", null)
+        if (selectedIds.isNullOrEmpty()) {
+            Log.e(DEBUG_TAG, "LockScreenActivity: Нет выбранных колод! Закрываюсь.")
             unlockScreen()
             return
         }
-
         val selectedDeckIds = selectedIds.map { it.toLong() }
 
         lifecycleScope.launch(Dispatchers.IO) {
-            var card = db.cardDao().getRandomCardFromDecks(selectedDeckIds, usedCardIds)
+            // (Req 1, 3, 6) - Используем новый запрос
+            var card: CardWithDeck?
 
+            if (allowedCardIds.isEmpty()) {
+                // Режим "Полного изучения" (Req 6)
+                card = db.cardDao().getCardForQuiz(selectedDeckIds, usedCardIds)
+            } else {
+                // Режим "Постепенного изучения" (Req 6)
+                card = db.cardDao().getCardForQuiz(selectedDeckIds, usedCardIds, allowedCardIds)
+            }
+
+            // Если не нашли (т.е. все уникальные карты кончились), сбрасываем список
             if (card == null && usedCardIds.isNotEmpty()) {
                 Log.w(DEBUG_TAG, "LockScreenActivity: Все уникальные карты показаны. Сброс списка.")
                 usedCardIds.clear()
-                card = db.cardDao().getRandomCardFromDecks(selectedDeckIds, usedCardIds)
+                // Повторяем запрос
+                card = if (allowedCardIds.isEmpty()) {
+                    db.cardDao().getCardForQuiz(selectedDeckIds, usedCardIds)
+                } else {
+                    db.cardDao().getCardForQuiz(selectedDeckIds, usedCardIds, allowedCardIds)
+                }
             }
 
             withContext(Dispatchers.Main) {
                 if (card == null) {
-                    Log.e(DEBUG_TAG, "LockScreenActivity: Не удалось найти карту (колоды пусты)")
-                    unlockScreen() // Нечего показывать, разблокируем
+                    Log.e(DEBUG_TAG, "LockScreenActivity: Не удалось найти карту (колоды пусты или ошибка)")
+                    unlockScreen()
                 } else {
                     currentCard = card
                     usedCardIds.add(card.cardId)
 
-                    // V3.0: Логика определения типа карточки
-                    isCurrentCardInverted = card.isInvertible && Random.nextBoolean()
-                    isCurrentCardReadingCheck = card.isReadingCheck
-
-                    // V3.1: Шанс 25% на "Изучение"
-                    isCurrentCardStudy = (card.reading != null && card.reading.isNotBlank()) && Random.nextInt(100) < 25
-
+                    binding.progressText.text = "Вопрос ${currentQuestionIndex + 1} из $totalQuestions"
+                    binding.deckNameText.text = card.deckName
                     binding.answerInput.setText("")
-                    binding.answerInput.requestFocus()
 
-                    if (isCurrentCardStudy) {
-                        // --- V3.1: Режим "Изучение нового" (Новый UI) ---
+                    // (Req 1) - РЕШАЕМ, ПОКАЗАТЬ КАРТОЧКУ ИЛИ ВОПРОС
+                    // Решаем, какой тип вопроса/показа нам нужен
+                    currentQuizType = decideQuizType(card)
 
-                        // Показываем/скрываем контейнеры
-                        binding.studyContainer.visibility = View.VISIBLE
-                        binding.quizContainer.visibility = View.GONE
-                        binding.answerInput.visibility = View.GONE
-
-                        // Заполняем тексты (новыми View)
-                        binding.studyCharacterText.text = card.question
-                        binding.studyReadingText.text = card.reading ?: "---" // Показываем чтение
-                        binding.studyAnswerText.text = card.answer // Показываем ответ
-
-                        // Настраиваем кнопку
-                        binding.submitButton.text = "Изучил"
-
-                    } else {
-                        // --- V3.1: Режим "Викторина" (Старый UI) ---
-
-                        // Показываем/скрываем контейнеры
-                        binding.studyContainer.visibility = View.GONE
-                        binding.quizContainer.visibility = View.VISIBLE
-                        binding.answerInput.visibility = View.VISIBLE
-
-                        binding.submitButton.text = "Проверить"
-                        binding.deckNameText.text = card.deckName
-
-                        val progressString = "Вопрос ${currentQuestion + 1} из $totalQuestions"
-
-                        if (isCurrentCardInverted) {
-                            // Инвертировано (Feature 2.1)
-                            binding.characterText.text = card.answer
-                            // V3.1: ИСПРАВЛЕН БАГ С ПОДСКАЗКОЙ (убран ${card.question})
-                            binding.progressText.text = "$progressString\n(Введите перевод/символ)"
-                        } else {
-                            // Нормальный режим
-                            binding.characterText.text = card.question
-                            if (isCurrentCardReadingCheck && card.reading != null) {
-                                binding.progressText.text = "$progressString\n(Введите чтение)"
-                            } else {
-                                binding.progressText.text = "$progressString\n(Введите перевод)"
-                            }
-                        }
+                    when (currentQuizType) {
+                        QuizType.STUDY_CARD -> showStudyView(card)
+                        else -> showQuizView(card, currentQuizType)
                     }
                 }
             }
         }
     }
 
-    // --- V3.0: ФУНКЦИЯ ОБНОВЛЕНА (ЛОГИКА ПРОВЕРКИ) ---
+    // (Req 1) - Логика: показать карточку для изучения
+    private fun showStudyView(card: CardWithDeck) {
+        binding.quizContainer.visibility = View.GONE
+        binding.studyContainer.visibility = View.VISIBLE
+
+        binding.studyQuestion.text = card.question
+        binding.studyAnswer.text = card.answer
+
+        if (card.sound != null) {
+            binding.studySound.text = "(${card.sound})"
+            binding.studySound.visibility = View.VISIBLE
+        } else {
+            binding.studySound.visibility = View.GONE
+        }
+
+        // (Req 2) - Размер шрифта
+        if (card.cardType == CardType.WORD || (card.cardType == CardType.READING && card.question.length > 5)) {
+            binding.studyQuestion.setTextSize(TypedValue.COMPLEX_UNIT_SP, 60F)
+        } else {
+            binding.studyQuestion.setTextSize(TypedValue.COMPLEX_UNIT_SP, 80F)
+        }
+    }
+
+    // (Req 1, 3) - Логика: показать вопрос для проверки
+    private fun showQuizView(card: CardWithDeck, quizType: QuizType) {
+        binding.studyContainer.visibility = View.GONE
+        binding.quizContainer.visibility = View.VISIBLE
+        binding.answerInput.requestFocus()
+
+        var question = ""
+        var title = ""
+        var hint = ""
+
+        when (quizType) {
+            QuizType.QUESTION_TO_ANSWER -> {
+                question = card.question
+                title = "Напишите перевод/ответ:"
+                hint = "Введите ответ"
+            }
+            QuizType.ANSWER_TO_QUESTION -> {
+                question = card.answer
+                title = "Напишите слово/символ:"
+                hint = "Введите вопрос"
+            }
+            QuizType.QUESTION_TO_SOUND -> {
+                question = card.question
+                title = "Напишите звучание:"
+                hint = "Введите звучание"
+            }
+            QuizType.STUDY_CARD -> {} // Уже обработано
+        }
+
+        binding.characterText.text = question
+        binding.questionTitle.text = title
+        binding.answerInput.hint = hint
+
+        // (Req 2) - Размер шрифта
+        val isLong = (card.cardType == CardType.WORD || (card.cardType == CardType.READING && question.length > 5))
+        if (isLong) {
+            binding.characterText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 80F)
+        } else {
+            binding.characterText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 120F)
+        }
+    }
+
+    // (Req 1, 3) - Логика выбора: учить или спрашивать
+    private fun decideQuizType(card: CardWithDeck): QuizType {
+        val options = mutableListOf<QuizType>()
+
+        // 1. Проверяем SRS Level для (Вопрос -> Ответ)
+        if (card.srsLevel < SRS_LEVEL_REQUIRED_FOR_QUIZ) {
+            options.add(QuizType.STUDY_CARD) // Приоритет!
+        } else {
+            options.add(QuizType.QUESTION_TO_ANSWER)
+        }
+
+        // 2. Проверяем (Ответ -> Вопрос)
+        if (card.invertAnswer) {
+            if (card.srsLevelInverted < SRS_LEVEL_REQUIRED_FOR_QUIZ) {
+                options.add(QuizType.STUDY_CARD) // Приоритет!
+            } else {
+                options.add(QuizType.ANSWER_TO_QUESTION)
+            }
+        }
+
+        // 3. Проверяем (Вопрос -> Звучание)
+        if (card.checkSound) {
+            if (card.srsLevelSound < SRS_LEVEL_REQUIRED_FOR_QUIZ) {
+                options.add(QuizType.STUDY_CARD) // Приоритет!
+            } else {
+                options.add(QuizType.QUESTION_TO_SOUND)
+            }
+        }
+
+        // Если в опциях есть "STUDY_CARD" (т.е. хоть один из уровней < 3),
+        // мы ОБЯЗАНЫ показать карточку (Req 1).
+        if (options.contains(QuizType.STUDY_CARD)) {
+            return QuizType.STUDY_CARD
+        }
+
+        // Если все уровни >= 3, выбираем случайный тип вопроса из доступных
+        return options.random()
+    }
+
+    // (Req 3) - Логика проверки ответа
     private fun checkAnswer(answer: String) {
         val card = currentCard ?: return
 
-        // 1. Если это была карточка "Изучил"
-        if (isCurrentCardStudy) {
-            isCurrentCardStudy = false // Сбрасываем
-            currentQuestion++
-
-            if (currentQuestion >= totalQuestions) {
-                Log.d(DEBUG_TAG, "LockScreenActivity: Все вопросы (включая изучение) пройдены")
-                unlockScreen()
-            } else {
-                generateQuestion() // Генерируем следующий (может быть снова "Изучил")
-            }
-            return
-        }
-
-        // 2. Проверка пароля "pass" (Feature 4)
-        if (answer == "pass") {
+        if (answer.equals("pass", ignoreCase = true)) {
             Log.d(DEBUG_TAG, "LockScreenActivity: Введен 'pass'")
-            if (checkPassLimit()) {
-                unlockScreen()
-            } else {
-                // Лимит превышен, считаем как ошибку
-                Toast.makeText(this, "Пароль 'pass' использован 3/3 раза сегодня.", Toast.LENGTH_SHORT).show()
-                handleFailedAttempt()
-            }
+            unlockScreen()
             return
         }
 
-        // 3. Логика викторины
-        val expectedAnswer: String = if (isCurrentCardInverted) {
-            card.question // Q: Answer, A: Question
-        } else {
-            if (isCurrentCardReadingCheck && card.reading != null) {
-                card.reading // Q: Question, A: Reading
-            } else {
-                card.answer // Q: Question, A: Answer
-            }
+        // Определяем правильный ответ
+        val correctAnswer = when (currentQuizType) {
+            QuizType.QUESTION_TO_ANSWER -> card.answer
+            QuizType.ANSWER_TO_QUESTION -> card.question
+            QuizType.QUESTION_TO_SOUND -> card.sound ?: ""
+            QuizType.STUDY_CARD -> "" // Не должно случиться
         }
 
-        if (answer == expectedAnswer.lowercase().trim()) {
-            // Правильный ответ
-            currentQuestion++
+        if (answer.equals(correctAnswer, ignoreCase = true)) {
+            // ПРАВИЛЬНО
             failedAttempts = 0
+            currentQuestionIndex++
 
-            if (currentQuestion >= totalQuestions) {
+            updateSrsLevel(card, currentQuizType, true)
+
+            if (currentQuestionIndex >= totalQuestions) {
                 Log.d(DEBUG_TAG, "LockScreenActivity: Все вопросы отвечены")
                 unlockScreen()
             } else {
@@ -252,47 +373,126 @@ class LockScreenActivity : AppCompatActivity() {
                 generateQuestion()
             }
         } else {
-            // Неправильный ответ
-            handleFailedAttempt()
+            // НЕПРАВИЛЬНО
+            failedAttempts++
+            Log.d(DEBUG_TAG, "LockScreenActivity: Неправильный ответ. Попытка $failedAttempts")
+
+            // (Req 3) - Увеличиваем индекс (в updateSrsLevel)
+            // (Req 1) - Сбрасываем уровень до "изучения"
+            updateSrsLevel(card, currentQuizType, false)
+
+            // (Req 6) - Проверяем, нужно ли добавить еще карточек (если мы в постепенном режиме)
+            checkProgressiveUnlock(card.deckId)
+
+            if (failedAttempts >= 3) {
+                // (Req 3) - Уменьшаем сильнее (уже сделано в updateSrsLevel)
+                lockDevice()
+            } else {
+                Toast.makeText(this, "Неправильно! Попыток осталось: ${3 - failedAttempts}", Toast.LENGTH_SHORT).show()
+                startTimer()
+                // (Req 1) - После неправ. ответа, ПОКАЗЫВАЕМ КАРТОЧКУ
+                showStudyView(card)
+                // Кнопка "Понятно" на studyView вернет нас к generateQuestion()
+            }
         }
     }
 
-    private fun handleFailedAttempt() {
-        failedAttempts++
-        Log.d(DEBUG_TAG, "LockScreenActivity: Неправильный ответ. Попытка $failedAttempts")
+    // (Req 6) - Проверка на "разблокировку" новой пачки
+    private fun checkProgressiveUnlock(deckId: Long) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val deck = db.cardDao().getDeckById(deckId)
+            if (deck == null || deck.fullStudy || allowedCardIds.isEmpty()) {
+                return@launch // Выходим, мы не в постепенном режиме
+            }
 
-        if (failedAttempts >= 3) {
-            lockDevice()
-        } else {
-            Toast.makeText(this, "Неправильно! Попыток осталось: ${3 - failedAttempts}", Toast.LENGTH_SHORT).show()
-            startTimer()
+            // Проверяем, сколько карточек из "разрешенных" уже "изучены"
+            val stats = db.cardDao().getDeckStats(deckId, SRS_LEVEL_REQUIRED_FOR_QUIZ)
+            val totalAllowed = allowedCardIds.size
+            val learnedAllowed = stats.learnedCards // (DAO считает только по изученным)
+
+            val percentLearned = if (totalAllowed > 0) (learnedAllowed.toDouble() / totalAllowed.toDouble()) else 0.0
+
+            // "Если пользователь отвечает уверенно на более половины"
+            if (percentLearned > 0.5) {
+                // Добавляем 5 (или batchSize) карточек
+                val currentLevel = prefs.getInt("progressive_level_${deck.id}", 0)
+                val nextLevel = currentLevel + 1
+                prefs.edit().putInt("progressive_level_${deck.id}", nextLevel).apply()
+
+                // Обновляем список разрешенных ID
+                allowedCardIds = loadAllowedCardIds()
+
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@LockScreenActivity, "Отлично! Добавлено ${deck.batchSize} новых карточек!", Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
 
-    // --- V3.0: Новая функция лимита "pass" (Feature 4) ---
-    private fun checkPassLimit(): Boolean {
-        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-        val lastUsedDay = prefs.getString("pass_last_used_day", "")
-        var passCount = prefs.getInt("pass_count", 0)
+    // (Req 3) - Обновление индекса SRS
+    private fun updateSrsLevel(card: CardWithDeck, type: QuizType, correct: Boolean, forceLevel: Int? = null) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            var srs = 0
+            var srsInv = card.srsLevelInverted
+            var srsSnd = card.srsLevelSound
+            var srsMain = card.srsLevel
 
-        if (lastUsedDay != today) {
-            // Новый день, сбрасываем счетчик
-            passCount = 0
-            prefs.edit().putString("pass_last_used_day", today).apply()
-        }
+            var totalCorrect = card.totalCorrect
+            var totalIncorrect = card.totalIncorrect
 
-        if (passCount < 3) {
-            // Лимит не превышен
-            passCount++
-            prefs.edit().putInt("pass_count", passCount).apply()
-            Log.d(DEBUG_TAG, "LockScreenActivity: 'pass' использован $passCount/3 раза сегодня.")
-            return true
-        } else {
-            // Лимит превышен
-            Log.w(DEBUG_TAG, "LockScreenActivity: 'pass' ПРОВЛЕН. Лимит (3) исчерпан.")
-            return false
+            val change = if (correct) 1 else (if (failedAttempts >= 2) -5 else -2) // Увеличиваем/Уменьшаем
+
+            // Если ответ правильный, +1 (до 10), если нет -2 (до 0)
+            // (Req 3: за 3 неправ. ответа, уменьшай сильнее) - учтено в 'change'
+            val updateSrs = { level: Int ->
+                if (forceLevel != null) forceLevel else {
+                    max(MIN_SRS_LEVEL, min(MAX_SRS_LEVEL, level + change))
+                }
+            }
+
+            // Обновляем нужный индекс
+            when (type) {
+                QuizType.STUDY_CARD -> {
+                    // Принудительно ставим тот уровень, что передали (обычно +1)
+                    srsInv = if (card.invertAnswer) updateSrs(srsInv) else srsInv
+                    srsSnd = if (card.checkSound) updateSrs(srsSnd) else srsSnd
+                    srsMain = updateSrs(srsMain)
+                    // Не меняем статы
+                }
+                QuizType.QUESTION_TO_ANSWER -> {
+                    srsMain = updateSrs(srsMain)
+                    if (correct) totalCorrect++ else totalIncorrect++
+                }
+                QuizType.ANSWER_TO_QUESTION -> {
+                    srsInv = updateSrs(srsInv)
+                    if (correct) totalCorrect++ else totalIncorrect++
+                }
+                QuizType.QUESTION_TO_SOUND -> {
+                    srsSnd = updateSrs(srsSnd)
+                    if (correct) totalCorrect++ else totalIncorrect++
+                }
+            }
+
+            // Обновляем запись в БД
+            val updatedCard = db.cardDao().getCardsForDeck(card.deckId).find { it.id == card.cardId } ?: return@launch
+            db.cardDao().updateCard(updatedCard.copy(
+                srsLevel = srsMain,
+                srsLevelInverted = srsInv,
+                srsLevelSound = srsSnd,
+                totalCorrect = totalCorrect,
+                totalIncorrect = totalIncorrect
+            ))
+
+            // (Req 4) - Обновляем общую статистику колоды
+            val deck = db.cardDao().getDeckById(card.deckId) ?: return@launch
+            db.cardDao().updateDeck(deck.copy(
+                totalQuestionsAnswered = deck.totalQuestionsAnswered + 1,
+                correctAnswers = if (correct) deck.correctAnswers + 1 else deck.correctAnswers
+            ))
         }
     }
+
+    // --- Остальная логика (без изменений) ---
 
     private fun startTimer() {
         isTimerActive = true
@@ -320,10 +520,7 @@ class LockScreenActivity : AppCompatActivity() {
     private fun lockDevice() {
         Log.d(DEBUG_TAG, "LockScreenActivity: lockDevice (провал 3 попыток)")
         Toast.makeText(this, "Превышено количество попыток. До следующего раза!", Toast.LENGTH_LONG).show()
-
         try {
-            val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-            val adminComponent = ComponentName(this, MyDeviceAdminReceiver::class.java)
             if (dpm.isAdminActive(adminComponent)) {
                 Log.d(DEBUG_TAG, "LockScreenActivity: Вызываю dpm.lockNow()")
                 dpm.lockNow()
@@ -333,8 +530,6 @@ class LockScreenActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Log.e(DEBUG_TAG, "LockScreenActivity: Ошибка при вызове lockNow(): ${e.message}")
         }
-
-        // Планируем следующий запуск
         MainActivity.scheduleNextLaunch(this)
         finish()
     }
@@ -342,22 +537,9 @@ class LockScreenActivity : AppCompatActivity() {
     private fun unlockScreen() {
         Log.d(DEBUG_TAG, "LockScreenActivity: unlockScreen (успех)")
         Toast.makeText(this, "Отлично! Разблокировано!", Toast.LENGTH_SHORT).show()
-        // Планируем следующий запуск
         MainActivity.scheduleNextLaunch(this)
         finish()
     }
-
-    override fun onPause() {
-        super.onPause()
-        Log.d(DEBUG_TAG, "LockScreenActivity: onPause")
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        Log.d(DEBUG_TAG, "LockScreenActivity: onDestroy (Экран закрывается)")
-    }
-
-    // --- БЛОК АНТИ-ПОБЕГА (С ИСПРАВЛЕНИЕМ БАГА) ---
 
     override fun onBackPressed() {
         Log.d(DEBUG_TAG, "LockScreenActivity: Кнопка 'Назад' нажата и ЗАБЛОКИРОВАНА.")
@@ -366,7 +548,6 @@ class LockScreenActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         Log.d(DEBUG_TAG, "LockScreenActivity: onStop")
-        // Агрессивный перезапуск при сворачивании
         if (!isFinishing && powerManager.isInteractive) {
             Log.w(DEBUG_TAG, "LockScreenActivity: ПОПЫТКА ПОБЕГА! (onStop). Перезапускаюсь...")
             relaunch()
@@ -376,7 +557,6 @@ class LockScreenActivity : AppCompatActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         val isScreenOn = powerManager.isInteractive
-
         if (hasFocus) {
             Log.d(DEBUG_TAG, "LockScreenActivity: onWindowFocusChanged(true)")
             hideSystemUI()
@@ -386,7 +566,7 @@ class LockScreenActivity : AppCompatActivity() {
                 Log.w(DEBUG_TAG, "LockScreenActivity: ПОПЫТКА ПОБЕГА! (Focus Lost + Screen On). Перезапускаюсь...")
                 relaunch()
             } else if (!isFinishing && !isScreenOn) {
-                Log.d(DEBUG_TAG, "LockScreenActivity: Фокус потерян, но экран выключается. Даем ему уснуть.")
+                Log.d(DEBUG_TAG, "LockScreenActivity: Фокус потерян, но экран выключается.")
             }
         }
     }
@@ -402,5 +582,15 @@ class LockScreenActivity : AppCompatActivity() {
         val controller = WindowCompat.getInsetsController(window, window.decorView)
         controller?.hide(WindowInsetsCompat.Type.systemBars())
         controller?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    }
+
+    override fun onPause() {
+        super.onPause()
+        Log.d(DEBUG_TAG, "LockScreenActivity: onPause")
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        Log.d(DEBUG_TAG, "LockScreenActivity: onDestroy (Экран закрывается)")
     }
 }
