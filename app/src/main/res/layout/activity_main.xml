@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:fillViewport="true"
+    android:background="#121212">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp"
+        android:gravity="center_horizontal">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Japanese Lock Screen"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="16dp"
+            android:textColor="#FFFFFF"/>
+
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Статус: ⏸️ Отключено"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="24dp"
+            android:textColor="#FFFFFF"/>
+
+        <TextView
+            android:id="@+id/nextLaunchText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="⏰ Следующий запуск: --:--"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="@android:color/holo_blue_light"
+            android:layout_marginBottom="24dp"
+            android:visibility="gone"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Интервал запуска (в минутах):"
+            android:textSize="16sp"
+            android:layout_marginBottom="8dp"
+            android:textColor="#DDDDDD"/>
+
+        <EditText
+            android:id="@+id/intervalInput"
+            android:layout_width="100dp"
+            android:layout_height="wrap_content"
+            android:inputType="number"
+            android:text="30"
+            android:gravity="center"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#FFFFFF"
+            android:layout_marginBottom="24dp"/>
+
+        <TextView
+            android:id="@+id/countText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Вопросов за раз: 5"
+            android:textSize="16sp"
+            android:layout_marginBottom="8dp"
+            android:textColor="#DDDDDD"/>
+
+        <SeekBar
+            android:id="@+id/countSeekBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="19"
+            android:progress="4"
+            android:layout_marginBottom="24dp"/>
+
+        <CheckBox
+            android:id="@+id/autoLaunchCheckbox"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Автозапуск во время использования"
+            android:textSize="14sp"
+            android:layout_marginBottom="8dp"
+            android:textColor="#DDDDDD"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="• Выключено: только при погасании/включении экрана\n• Включено: может появиться в любой момент (по таймеру)"
+            android:textSize="11sp"
+            android:textColor="@android:color/darker_gray"
+            android:layout_marginBottom="24dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Управление колодами"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp"
+            android:textColor="#FFFFFF"/>
+
+        <Button
+            android:id="@+id/manageDecksButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Управление колодами"
+            android:layout_marginBottom="16dp"
+            />
+
+        <LinearLayout
+            android:id="@+id/deckListContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="24dp"/>
+
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/enableButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Включить"
+                android:textSize="16sp"
+                android:padding="16dp"
+                android:layout_marginEnd="8dp"
+                android:backgroundTint="@android:color/holo_green_dark"/>
+
+            <Button
+                android:id="@+id/updateButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Обновить"
+                android:textSize="16sp"
+                android:padding="16dp"
+                android:backgroundTint="@android:color/holo_blue_dark"/>
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/disableButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Отключить блокировку"
+            android:textSize="16sp"
+            android:padding="16dp"
+            android:layout_marginTop="8dp"
+            android:visibility="gone"
+            android:backgroundTint="@android:color/holo_red_dark"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Пароль для разблокировки: pass"
+            android:textSize="12sp"
+            android:layout_marginTop="16dp"
+            android:textStyle="italic"
+            android:textColor="#888888"/>
+
+    </LinearLayout>
+</ScrollView>

@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:background="#121212"> <LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="24dp"
+    android:gravity="center"
+    android:background="#121212">
+
+    <TextView
+        android:id="@+id/deckNameText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textSize="14sp"
+        android:textColor="#AAAAAA"
+        android:layout_marginBottom="8dp"/>
+
+    <TextView
+        android:id="@+id/progressText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Вопрос 1 из 5"
+        android:textSize="16sp"
+        android:layout_marginBottom="32dp"
+        android:textColor="#AAAAAA"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Что это за символ?"
+        android:textSize="18sp"
+        android:layout_marginBottom="16dp"
+        android:textColor="#FFFFFF"/>
+
+    <TextView
+        android:id="@+id/characterText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="…"
+        android:textSize="120sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="32dp"
+        android:textColor="#FFFFFF"/>
+
+    <EditText
+        android:id="@+id/answerInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Введите romaji"
+        android:inputType="text"
+        android:imeOptions="actionDone"
+        android:textSize="18sp"
+        android:padding="16dp"
+        android:layout_marginBottom="16dp"
+        android:textColor="#FFFFFF"
+        android:textColorHint="#888888"
+        android:backgroundTint="#FFFFFF"/>
+
+    <Button
+        android:id="@+id/submitButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Проверить"
+        android:textSize="18sp"
+        android:padding="16dp"
+        android:layout_marginBottom="16dp"/>
+
+    <TextView
+        android:id="@+id/timerText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textSize="16sp"
+        android:textColor="#FF5555"/>
+
+</LinearLayout>
+</ScrollView>
