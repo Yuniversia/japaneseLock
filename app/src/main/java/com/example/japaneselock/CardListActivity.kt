@@ -138,6 +138,7 @@ class CardListActivity : AppCompatActivity() {
         val isEditing = (card != null)
         val type = if (isEditing) card!!.cardType else cardType
         val title = if (isEditing) "Редактировать" else "Добавить"
+        val SRS_LEVEL_REQUIRED_FOR_QUIZ = 3
 
         // Настраиваем UI в зависимости от типа
         when (type) {
@@ -195,6 +196,22 @@ class CardListActivity : AppCompatActivity() {
                 }
 
                 lifecycleScope.launch(Dispatchers.IO) {
+                    val startSrsLevel = if (!isEditing && type == CardType.READING) {
+                        SRS_LEVEL_REQUIRED_FOR_QUIZ
+                    } else if (isEditing) {
+                        card!!.srsLevel
+                    } else {
+                        0 // 0 для новых Слогов, Кандзи, Слов
+                    }
+
+                    val startSrsInverted = if (!isEditing && type == CardType.READING) {
+                        SRS_LEVEL_REQUIRED_FOR_QUIZ
+                    } else if (isEditing) {
+                        card!!.srsLevelInverted
+                    } else {
+                        0
+                    }
+
                     val cardToSave = if (isEditing) {
                         card!!.copy(
                             question = question,
@@ -202,7 +219,10 @@ class CardListActivity : AppCompatActivity() {
                             cardType = type,
                             sound = if (sound.isBlank()) null else sound,
                             invertAnswer = if (type == CardType.READING) dialogBinding.checkInvertReading.isChecked else dialogBinding.checkInvert.isChecked,
-                            checkSound = if (type == CardType.KANJI || type == CardType.WORD) dialogBinding.checkSound.isChecked else false
+                            checkSound = if (type == CardType.KANJI || type == CardType.WORD) dialogBinding.checkSound.isChecked else false,
+                            srsLevel = startSrsLevel, // <-- Используем новые переменные
+                            srsLevelInverted = startSrsInverted, // <-- Используем новые переменные
+                            srsLevelSound = if (isEditing) card!!.srsLevelSound else 0
                         )
                     } else {
                         Card(
@@ -231,3 +251,49 @@ class CardListActivity : AppCompatActivity() {
             .show()
     }
 }
+
+//lifecycleScope.launch(Dispatchers.IO) {
+//
+//    // (Баг 6) - Устанавливаем стартовый уровень
+//    val startSrsLevel = if (!isEditing && type == CardType.READING) {
+//        SRS_LEVEL_REQUIRED_FOR_QUIZ
+//    } else if (isEditing) {
+//        card!!.srsLevel
+//    } else {
+//        0 // 0 для новых Слогов, Кандзи, Слов
+//    }
+//
+//    val startSrsInverted = if (!isEditing && type == CardType.READING) {
+//        SRS_LEVEL_REQUIRED_FOR_QUIZ
+//    } else if (isEditing) {
+//        card!!.srsLevelInverted
+//    } else {
+//        0
+//    }
+//    // ---
+//
+//    val cardToSave = (if (isEditing) card!! else Card(deckId = deckId)).copy(
+//        question = question,
+//        answer = answer,
+//        cardType = type,
+//        sound = if (sound.isBlank()) null else sound,
+//        invertAnswer = if (type == CardType.READING) dialogBinding.checkInvertReading.isChecked else dialogBinding.checkInvert.isChecked,
+//        checkSound = if (type == CardType.KANJI || type == CardType.WORD) dialogBinding.checkSound.isChecked else false,
+//
+//        srsLevel = startSrsLevel, // <-- Используем новые переменные
+//        srsLevelInverted = startSrsInverted, // <-- Используем новые переменные
+//        srsLevelSound = if (isEditing) card!!.srsLevelSound else 0
+//    )
+//
+//    if (isEditing) {
+//        db.cardDao().updateCard(cardToSave)
+//    } else {
+//        db.cardDao().insertCard(cardToSave)
+//    }
+//    loadCards() // Обновляем список
+//}
+//}
+//.setNegativeButton("Отмена", null)
+//.show()
+//}
+//}

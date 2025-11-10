@@ -46,10 +46,9 @@ abstract class AppDatabase : RoomDatabase() {
 
         suspend fun populateDatabase(cardDao: CardDao) {
             // --- СОЗДАЕМ ХИРАГАНУ ---
-            // Устанавливаем srsLevel = 3, чтобы они сразу были "вопросами", а не "карточками"
-            val defaultSrsLevel = 3 // (Req 1: 3 показа, чтобы стать "вопросом")
+            val defaultSrsLevel = 0
 
-            var deckId = cardDao.insertDeck(Deck(name = "Hiragana"))
+            var deckId = cardDao.insertDeck(Deck(name = "Hiragana", fullStudy = false))
             cardDao.insertCard(Card(deckId = deckId, question = "あ", answer = "a", cardType = CardType.SYLLABLE, srsLevel = defaultSrsLevel))
             cardDao.insertCard(Card(deckId = deckId, question = "い", answer = "i", cardType = CardType.SYLLABLE, srsLevel = defaultSrsLevel))
             cardDao.insertCard(Card(deckId = deckId, question = "う", answer = "u", cardType = CardType.SYLLABLE, srsLevel = defaultSrsLevel))

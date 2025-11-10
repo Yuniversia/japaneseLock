@@ -101,6 +101,9 @@ interface CardDao {
     """)
     suspend fun getCardForQuiz(selectedDeckIds: List<Long>, usedCardIds: Set<Long>, allowedCardIds: List<Long>): CardWithDeck?
 
+    @Query("SELECT * FROM cards WHERE id = :cardId")
+    suspend fun getCardById(cardId: Long): Card?
+
     // Запрос-заглушка, если progressive-режим выключен
     @Query("""
         SELECT 

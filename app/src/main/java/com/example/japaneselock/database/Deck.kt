@@ -12,7 +12,7 @@ data class Deck(
     // --- НОВЫЕ ПОЛЯ (Update 4.0) ---
 
     // Включить "Полное изучение" (показывать все карточки)
-    val fullStudy: Boolean = true,
+    val fullStudy: Boolean = false,
 
     // Количество карточек, добавляемых в "постепенном" режиме
     val batchSize: Int = 5,

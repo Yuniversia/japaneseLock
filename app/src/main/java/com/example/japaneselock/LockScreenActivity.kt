@@ -52,6 +52,7 @@ class LockScreenActivity : AppCompatActivity() {
     private val MAX_SRS_LEVEL = 10
     private val MIN_SRS_LEVEL = 0
     private var currentQuizType = QuizType.QUESTION_TO_ANSWER // Тип текущего вопроса
+    private var isFinalLockOnStudy = false
 
     // (Req 6) - ID карточек для постепенного режима
     private var allowedCardIds = listOf<Long>()
@@ -129,16 +130,27 @@ class LockScreenActivity : AppCompatActivity() {
 
         // (Req 1) - Кнопка "Понятно" на карточке изучения
         binding.studyGotItButton.setOnClickListener {
+            // (Баг 5.2) - Проверяем, был ли это показ после 3-й ошибки
+            if (isFinalLockOnStudy) {
+                lockDevice() // Сначала показали, теперь блокируем
+                return@setOnClickListener
+            }
+
             val card = currentCard ?: return@setOnClickListener
 
-            // Мы "увидели" карточку, увеличиваем ее srsLevel
-            // Если мы видим ее после ошибки, srsLevel УЖЕ 0, так что он станет 1.
-            // Если это новый, srsLevel был 0, станет 1. и т.д.
             val newSrsLevel = min(card.srsLevel + 1, SRS_LEVEL_REQUIRED_FOR_QUIZ)
             updateSrsLevel(card, QuizType.STUDY_CARD, true, newSrsLevel)
 
-            // Показываем следующий вопрос
-            generateQuestion()
+            // (Баг 5.1) - ФИКС: Увеличиваем счетчик
+            currentQuestionIndex++
+
+            if (currentQuestionIndex >= totalQuestions) {
+                Log.d(DEBUG_TAG, "LockScreenActivity: Все вопросы пройдены")
+                unlockScreen()
+            } else {
+                // Показываем следующий вопрос
+                generateQuestion()
+            }
         }
     }
 
@@ -237,7 +249,9 @@ class LockScreenActivity : AppCompatActivity() {
     }
 
     // (Req 1) - Логика: показать карточку для изучения
-    private fun showStudyView(card: CardWithDeck) {
+    private fun showStudyView(card: CardWithDeck, isFinalLock: Boolean = false) {
+        isFinalLockOnStudy = isFinalLock // (Баг 5) - Сохраняем флаг
+
         binding.quizContainer.visibility = View.GONE
         binding.studyContainer.visibility = View.VISIBLE
 
@@ -256,6 +270,13 @@ class LockScreenActivity : AppCompatActivity() {
             binding.studyQuestion.setTextSize(TypedValue.COMPLEX_UNIT_SP, 60F)
         } else {
             binding.studyQuestion.setTextSize(TypedValue.COMPLEX_UNIT_SP, 80F)
+        }
+
+        // (Баг 5) - Меняем текст кнопки, если это 3-я ошибка
+        if (isFinalLock) {
+            binding.studyGotItButton.text = "Понятно (Блокировка)"
+        } else {
+            binding.studyGotItButton.text = "Понятно"
         }
     }
 
@@ -302,7 +323,19 @@ class LockScreenActivity : AppCompatActivity() {
     }
 
     // (Req 1, 3) - Логика выбора: учить или спрашивать
+    // (Баг 6) - Логика выбора: учить или спрашивать
     private fun decideQuizType(card: CardWithDeck): QuizType {
+        // (Баг 6) - "Чтение" никогда не бывает карточкой изучения
+        if (card.cardType == CardType.READING) {
+            // Просто выбираем, инвертировать или нет
+            return if (card.invertAnswer && Random.nextBoolean()) {
+                QuizType.ANSWER_TO_QUESTION
+            } else {
+                QuizType.QUESTION_TO_ANSWER
+            }
+        }
+
+        // --- Старая логика (для Слогов, Кандзи, Слов) ---
         val options = mutableListOf<QuizType>()
 
         // 1. Проверяем SRS Level для (Вопрос -> Ответ)
@@ -330,13 +363,10 @@ class LockScreenActivity : AppCompatActivity() {
             }
         }
 
-        // Если в опциях есть "STUDY_CARD" (т.е. хоть один из уровней < 3),
-        // мы ОБЯЗАНЫ показать карточку (Req 1).
         if (options.contains(QuizType.STUDY_CARD)) {
             return QuizType.STUDY_CARD
         }
 
-        // Если все уровни >= 3, выбираем случайный тип вопроса из доступных
         return options.random()
     }
 
@@ -350,7 +380,6 @@ class LockScreenActivity : AppCompatActivity() {
             return
         }
 
-        // Определяем правильный ответ
         val correctAnswer = when (currentQuizType) {
             QuizType.QUESTION_TO_ANSWER -> card.answer
             QuizType.ANSWER_TO_QUESTION -> card.question
@@ -373,26 +402,42 @@ class LockScreenActivity : AppCompatActivity() {
                 generateQuestion()
             }
         } else {
-            // НЕПРАВИЛЬНО
+            // НЕПРАВИЛЬНО (Баг 4 и 5)
             failedAttempts++
             Log.d(DEBUG_TAG, "LockScreenActivity: Неправильный ответ. Попытка $failedAttempts")
 
-            // (Req 3) - Увеличиваем индекс (в updateSrsLevel)
-            // (Req 1) - Сбрасываем уровень до "изучения"
+            // Определяем текущий уровень
+            val (currentLevel, quizType) = when (currentQuizType) {
+                QuizType.QUESTION_TO_ANSWER -> Pair(card.srsLevel, "Main")
+                QuizType.ANSWER_TO_QUESTION -> Pair(card.srsLevelInverted, "Inverted")
+                QuizType.QUESTION_TO_SOUND -> Pair(card.srsLevelSound, "Sound")
+                else -> Pair(0, "Study")
+            }
+
+            // Рассчитываем изменение (Req 3)
+            val srsChange = if (failedAttempts >= 2) -5 else -2 // Уменьшаем сильнее
+            val newSrsLevel = max(MIN_SRS_LEVEL, currentLevel + srsChange)
+
+            // Запускаем обновление в БД (в фоне)
             updateSrsLevel(card, currentQuizType, false)
+            checkProgressiveUnlock(card.deckId) // (Req 6)
 
-            // (Req 6) - Проверяем, нужно ли добавить еще карточек (если мы в постепенном режиме)
-            checkProgressiveUnlock(card.deckId)
-
+            // (Баг 5) - Логика 3-х ошибок
             if (failedAttempts >= 3) {
-                // (Req 3) - Уменьшаем сильнее (уже сделано в updateSrsLevel)
-                lockDevice()
+                Toast.makeText(this, "Превышено количество попыток. Запомните!", Toast.LENGTH_LONG).show()
+                // Сначала показываем карточку
+                showStudyView(card, true) // true = заблокировать после нажатия "Понятно"
             } else {
+                // (Баг 4) - Логика "показать, если уровень низкий"
                 Toast.makeText(this, "Неправильно! Попыток осталось: ${3 - failedAttempts}", Toast.LENGTH_SHORT).show()
-                startTimer()
-                // (Req 1) - После неправ. ответа, ПОКАЗЫВАЕМ КАРТОЧКУ
-                showStudyView(card)
-                // Кнопка "Понятно" на studyView вернет нас к generateQuestion()
+
+                if (newSrsLevel < SRS_LEVEL_REQUIRED_FOR_QUIZ) {
+                    Log.d(DEBUG_TAG, "LockScreenActivity: SRS level ($quizType) упал до $newSrsLevel. Показываю карточку.")
+                    showStudyView(card) // Показываем карточку для изучения
+                } else {
+                    Log.d(DEBUG_TAG, "LockScreenActivity: SRS level ($quizType) $newSrsLevel. Карточка не показана.")
+                    startTimer() // Просто таймер
+                }
             }
         }
     }
@@ -440,24 +485,19 @@ class LockScreenActivity : AppCompatActivity() {
             var totalCorrect = card.totalCorrect
             var totalIncorrect = card.totalIncorrect
 
-            val change = if (correct) 1 else (if (failedAttempts >= 2) -5 else -2) // Увеличиваем/Уменьшаем
+            val change = if (correct) 1 else (if (failedAttempts >= 2) -5 else -2)
 
-            // Если ответ правильный, +1 (до 10), если нет -2 (до 0)
-            // (Req 3: за 3 неправ. ответа, уменьшай сильнее) - учтено в 'change'
             val updateSrs = { level: Int ->
                 if (forceLevel != null) forceLevel else {
                     max(MIN_SRS_LEVEL, min(MAX_SRS_LEVEL, level + change))
                 }
             }
 
-            // Обновляем нужный индекс
             when (type) {
                 QuizType.STUDY_CARD -> {
-                    // Принудительно ставим тот уровень, что передали (обычно +1)
                     srsInv = if (card.invertAnswer) updateSrs(srsInv) else srsInv
                     srsSnd = if (card.checkSound) updateSrs(srsSnd) else srsSnd
                     srsMain = updateSrs(srsMain)
-                    // Не меняем статы
                 }
                 QuizType.QUESTION_TO_ANSWER -> {
                     srsMain = updateSrs(srsMain)
@@ -473,8 +513,11 @@ class LockScreenActivity : AppCompatActivity() {
                 }
             }
 
-            // Обновляем запись в БД
-            val updatedCard = db.cardDao().getCardsForDeck(card.deckId).find { it.id == card.cardId } ?: return@launch
+            // --- ИСПРАВЛЕНИЕ (Оптимизация) ---
+            // Вместо загрузки ВСЕХ карточек колоды, получаем одну по ID
+            val updatedCard = db.cardDao().getCardById(card.cardId) ?: return@launch
+            // ---
+
             db.cardDao().updateCard(updatedCard.copy(
                 srsLevel = srsMain,
                 srsLevelInverted = srsInv,
