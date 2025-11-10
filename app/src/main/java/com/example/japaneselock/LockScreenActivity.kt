@@ -58,6 +58,7 @@ class LockScreenActivity : AppCompatActivity() {
     private var allowedCardIds = listOf<Long>()
 
     private val DEBUG_TAG = "DEBUG_LOCK"
+    private var outOfCards = false
 
     // Определяем типы вопросов
     private enum class QuizType {
@@ -191,6 +192,12 @@ class LockScreenActivity : AppCompatActivity() {
     private fun generateQuestion() {
         Log.d(DEBUG_TAG, "LockScreenActivity: generateQuestion (Вопрос ${currentQuestionIndex + 1})")
 
+        if (outOfCards) {
+            Log.d(DEBUG_TAG, "LockScreenActivity: Карты закончились, сессия завершена.")
+            unlockScreen("На этот сеанс больше нет уникальных карточек")
+            return
+        }
+
         val selectedIds = prefs.getStringSet("selected_deck_ids", null)
         if (selectedIds.isNullOrEmpty()) {
             Log.e(DEBUG_TAG, "LockScreenActivity: Нет выбранных колод! Закрываюсь.")
@@ -225,32 +232,50 @@ class LockScreenActivity : AppCompatActivity() {
 
             withContext(Dispatchers.Main) {
                 if (card == null) {
-                    Log.e(DEBUG_TAG, "LockScreenActivity: Не удалось найти карту (колоды пусты или ошибка)")
-                    unlockScreen()
-                } else {
-                    currentCard = card
-                    usedCardIds.add(card.cardId)
+                    // ... (логика, если card == null)
+                    return@withContext
+                }
 
-                    binding.progressText.text = "Вопрос ${currentQuestionIndex + 1} из $totalQuestions"
-                    binding.deckNameText.text = card.deckName
-                    binding.answerInput.setText("")
+                currentCard = card
+                usedCardIds.add(card.cardId)
 
-                    // (Req 1) - РЕШАЕМ, ПОКАЗАТЬ КАРТОЧКУ ИЛИ ВОПРОС
-                    // Решаем, какой тип вопроса/показа нам нужен
-                    currentQuizType = decideQuizType(card)
+                binding.progressText.text = "Вопрос ${currentQuestionIndex + 1} из $totalQuestions"
+                binding.deckNameText.text = card.deckName
+                binding.answerInput.setText("")
 
-                    when (currentQuizType) {
-                        QuizType.STUDY_CARD -> showStudyView(card)
-                        else -> showQuizView(card, currentQuizType)
-                    }
+                currentQuizType = decideQuizType(card)
+
+                updateDebugInfo(card, currentQuizType)
+
+                when (currentQuizType) {
+                    QuizType.STUDY_CARD -> showStudyView(card)
+                    else -> showQuizView(card, currentQuizType)
                 }
             }
         }
+
+    }
+
+    private fun updateDebugInfo(card: CardWithDeck, quizType: QuizType) {
+        // Собираем строку для отладки
+        val srsInfo = """
+            
+            --- [SRS DEBUG INFO] ---
+            ID: ${card.cardId}, Type: ${card.cardType}
+            Q->A (srsMain): ${card.srsLevel}
+            A->Q (srsInv): ${card.srsLevelInverted} (Invertible: ${card.invertAnswer})
+            Q->S (srsSnd): ${card.srsLevelSound} (CheckSound: ${card.checkSound})
+            Current Quiz: $quizType
+            --------------------------
+        """.trimIndent()
+
+        // Выводим в Logcat (уровень Debug)
+        Log.d(DEBUG_TAG, srsInfo)
     }
 
     // (Req 1) - Логика: показать карточку для изучения
     private fun showStudyView(card: CardWithDeck, isFinalLock: Boolean = false) {
-        isFinalLockOnStudy = isFinalLock // (Баг 5) - Сохраняем флаг
+        isFinalLockOnStudy = isFinalLock
 
         binding.quizContainer.visibility = View.GONE
         binding.studyContainer.visibility = View.VISIBLE
@@ -272,7 +297,6 @@ class LockScreenActivity : AppCompatActivity() {
             binding.studyQuestion.setTextSize(TypedValue.COMPLEX_UNIT_SP, 80F)
         }
 
-        // (Баг 5) - Меняем текст кнопки, если это 3-я ошибка
         if (isFinalLock) {
             binding.studyGotItButton.text = "Понятно (Блокировка)"
         } else {
@@ -313,13 +337,13 @@ class LockScreenActivity : AppCompatActivity() {
         binding.questionTitle.text = title
         binding.answerInput.hint = hint
 
-        // (Req 2) - Размер шрифта
         val isLong = (card.cardType == CardType.WORD || (card.cardType == CardType.READING && question.length > 5))
         if (isLong) {
             binding.characterText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 80F)
         } else {
             binding.characterText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 120F)
         }
+
     }
 
     // (Req 1, 3) - Логика выбора: учить или спрашивать
@@ -563,7 +587,15 @@ class LockScreenActivity : AppCompatActivity() {
     private fun lockDevice() {
         Log.d(DEBUG_TAG, "LockScreenActivity: lockDevice (провал 3 попыток)")
         Toast.makeText(this, "Превышено количество попыток. До следующего раза!", Toast.LENGTH_LONG).show()
+
+        // --- (Баг 1) ИЗМЕНЕНИЕ ---
+        // Устанавливаем флаг, чтобы при перезапуске сессия не началась заново
+        outOfCards = true
+        // --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
         try {
+            val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            val adminComponent = ComponentName(this, MyDeviceAdminReceiver::class.java)
             if (dpm.isAdminActive(adminComponent)) {
                 Log.d(DEBUG_TAG, "LockScreenActivity: Вызываю dpm.lockNow()")
                 dpm.lockNow()
@@ -573,13 +605,19 @@ class LockScreenActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Log.e(DEBUG_TAG, "LockScreenActivity: Ошибка при вызове lockNow(): ${e.message}")
         }
+
+        // Планируем следующий запуск
         MainActivity.scheduleNextLaunch(this)
         finish()
     }
 
-    private fun unlockScreen() {
+    private fun unlockScreen(customMessage: String? = null) {
         Log.d(DEBUG_TAG, "LockScreenActivity: unlockScreen (успех)")
-        Toast.makeText(this, "Отлично! Разблокировано!", Toast.LENGTH_SHORT).show()
+
+        val message = customMessage ?: "Отлично! Разблокировано!"
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+
+        // Планируем следующий запуск
         MainActivity.scheduleNextLaunch(this)
         finish()
     }
