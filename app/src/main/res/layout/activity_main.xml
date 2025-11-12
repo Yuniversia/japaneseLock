@@ -136,12 +136,94 @@
             android:layout_marginBottom="16dp"
             />
 
-        <LinearLayout
-            android:id="@+id/deckListContainer"
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Исключения"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="8dp"
+            android:textColor="#FFFFFF"/>
+
+        <CheckBox
+            android:id="@+id/checkExcludeCalls"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:layout_marginBottom="24dp"/>
+            android:text="Не блокировать во время звонков"
+            android:checked="true"
+            android:textColor="#DDDDDD"/>
+
+        <CheckBox
+            android:id="@+id/checkExcludeAlarms"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Не блокировать перед будильником"
+            android:checked="true"
+            android:textColor="#DDDDDD"/>
+
+        <CheckBox
+            android:id="@+id/checkExcludeMusic"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Не блокировать при прослушивании музыки"
+            android:checked="true"
+            android:textColor="#DDDDDD"
+            android:layout_marginBottom="16dp"/>
+
+        <CheckBox
+            android:id="@+id/checkBreakTime"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Перерыв (экран не блокируется)"
+            android:textColor="#DDDDDD"/>
+
+        <LinearLayout
+            android:id="@+id/layoutBreakTime"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:visibility="gone"
+            android:layout_marginBottom="24dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="C"
+                android:textColor="#DDDDDD"
+                android:layout_marginEnd="8dp"/>
+
+            <EditText
+                android:id="@+id/editBreakStart"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:hint="22:00"
+                android:inputType="time"
+                android:text="22:00"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#FFFFFF" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="До"
+                android:textColor="#DDDDDD"
+                android:layout_marginStart="16dp"
+                android:layout_marginEnd="8dp"/>
+
+            <EditText
+                android:id="@+id/editBreakEnd"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:hint="06:00"
+                android:inputType="time"
+                android:text="06:00"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#FFFFFF" />
+        </LinearLayout>
 
 
         <LinearLayout

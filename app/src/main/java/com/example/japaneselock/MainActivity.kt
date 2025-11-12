@@ -29,6 +29,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
+import android.app.TimePickerDialog
+import java.util.Calendar
+import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
@@ -47,6 +50,75 @@ class MainActivity : AppCompatActivity() {
         private const val PHONE_STATE_PERMISSION_REQUEST_CODE = 102
         private const val NOTIFICATION_PERMISSION_REQUEST_CODE = 104
         private const val DEVICE_ADMIN_REQUEST_CODE = 103 // НОВАЯ
+
+        // (ИСПРАВЛЕНИЕ V5.1) - Логика "Перерыва", перенесена из LockScreenLauncher
+        /**
+         * Проверяет, попадает ли указанное время (timeToCheck) в активный "Перерыв".
+         * @return Long (время окончания перерыва), если он активен, или null, если нет.
+         */
+        fun getBreakEndTimeInMillis(context: Context, timeToCheck: Long): Long? {
+            val prefs = context.getSharedPreferences("JapaneseLockPrefs", Context.MODE_PRIVATE)
+            if (!prefs.getBoolean("break_enabled", false)) {
+                return null // Перерыв выключен
+            }
+
+            try {
+                val startStr = prefs.getString("break_start", "22:00") ?: "22:00"
+                val endStr = prefs.getString("break_end", "06:00") ?: "06:00"
+
+                val startParts = startStr.split(":").map { it.toInt() }
+                val endParts = endStr.split(":").map { it.toInt() }
+
+                val calNow = Calendar.getInstance().apply { timeInMillis = timeToCheck }
+
+                val calStart = Calendar.getInstance().apply {
+                    timeInMillis = timeToCheck
+                    set(Calendar.HOUR_OF_DAY, startParts[0])
+                    set(Calendar.MINUTE, startParts[1])
+                    set(Calendar.SECOND, 0)
+                }
+                val startTime = calStart.timeInMillis
+
+                val calEnd = Calendar.getInstance().apply {
+                    timeInMillis = timeToCheck
+                    set(Calendar.HOUR_OF_DAY, endParts[0])
+                    set(Calendar.MINUTE, endParts[1])
+                    set(Calendar.SECOND, 0)
+                }
+                var endTime = calEnd.timeInMillis
+
+                // Если "До" (06:00) раньше чем "C" (22:00), значит это "через ночь"
+                if (endTime <= startTime) {
+
+                    // Пример: 22:00 - 06:00
+                    // calStart = СЕГОДНЯ в 22:00
+                    // calEnd = СЕГОДНЯ в 06:00
+
+                    if (calNow.timeInMillis >= startTime) {
+                        // Мы СЕГОДНЯ после 22:00 (например, 23:00)
+                        // Перерыв закончится ЗАВТРА в 06:00
+                        calEnd.add(Calendar.DAY_OF_YEAR, 1)
+                        return calEnd.timeInMillis // Завтра 06:00
+                    } else if (calNow.timeInMillis < endTime) {
+                        // Мы СЕГОДНЯ до 06:00 (например, 03:00)
+                        // Перерыв начался ВЧЕРА в 22:00
+                        return endTime // Сегодня 06:00
+                    }
+
+                } else {
+                    // Обычный случай (например, с 09:00 до 17:00)
+                    if (timeToCheck in startTime..endTime) {
+                        return endTime
+                    }
+                }
+
+                return null // Не в перерыве
+
+            } catch (e: Exception) {
+                Log.e(DEBUG_TAG, "--- (getBreakEndTimeInMillis) Ошибка парсинга времени перерыва: ${e.message}")
+                return null // В случае ошибки
+            }
+        }
 
         /**
          * ОБЩАЯ ФУНКЦИЯ ПЛАНИРОВАНИЯ (НОВАЯ ЛОГИКА - МИНУТЫ)
@@ -87,7 +159,18 @@ class MainActivity : AppCompatActivity() {
             }
 
             val delayMillis = intervalMinutes * 60 * 1000L
-            val triggerTime = System.currentTimeMillis() + delayMillis
+            var triggerTime = System.currentTimeMillis() + delayMillis
+
+            // (ИСПРАВЛЕНИЕ V5.1) - Проверяем, не попадает ли запуск на перерыв
+            val breakEndTime = getBreakEndTimeInMillis(context, triggerTime)
+            if (breakEndTime != null) {
+                Log.d(DEBUG_TAG, "scheduleNextLaunch: Запуск ($triggerTime) попадает в перерыв (до $breakEndTime).")
+                // Планируем следующий запуск через 1 минуту ПОСЛЕ окончания перерыва
+                triggerTime = breakEndTime + 60000
+                Log.d(DEBUG_TAG, "scheduleNextLaunch: Новый запуск запланирован на $triggerTime")
+            }
+            // --- КОНЕЦ ИСПРАВЛЕНИЯ V5.1 ---
+
             prefs.edit().putLong("next_launch_time", triggerTime).apply()
             // --- КОНЕЦ НОВОЙ ЛОГИКИ ---
 
@@ -129,7 +212,6 @@ class MainActivity : AppCompatActivity() {
         adminComponent = ComponentName(this, MyDeviceAdminReceiver::class.java)
 
         setupUI()
-        loadAndDisplayDecks() // Загружаем колоды
 
         // Запрашиваем все разрешения
         checkAndRequestOverlayPermission()
@@ -255,6 +337,40 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "Не удалось открыть менеджер колод.", Toast.LENGTH_SHORT).show()
             }
         }
+
+        // (Req 5.0) - Загрузка настроек Исключений
+        binding.checkExcludeCalls.isChecked = prefs.getBoolean("exclude_calls", true)
+        binding.checkExcludeAlarms.isChecked = prefs.getBoolean("exclude_alarms", true)
+        binding.checkExcludeMusic.isChecked = prefs.getBoolean("exclude_music", true)
+
+        // (Req 5.0) - Логика Перерыва
+        val isBreakEnabled = prefs.getBoolean("break_enabled", false)
+        binding.checkBreakTime.isChecked = isBreakEnabled
+        binding.layoutBreakTime.visibility = if (isBreakEnabled) View.VISIBLE else View.GONE
+        binding.editBreakStart.setText(prefs.getString("break_start", "22:00"))
+        binding.editBreakEnd.setText(prefs.getString("break_end", "06:00"))
+
+        binding.checkBreakTime.setOnCheckedChangeListener { _, isChecked ->
+            binding.layoutBreakTime.visibility = if (isChecked) View.VISIBLE else View.GONE
+        }
+
+        // Обработчики кликов для выбора времени
+        binding.editBreakStart.setOnClickListener { showTimePicker(binding.editBreakStart) }
+        binding.editBreakEnd.setOnClickListener { showTimePicker(binding.editBreakEnd) }
+        binding.editBreakStart.isFocusable = false
+        binding.editBreakEnd.isFocusable = false
+    }
+
+    private fun showTimePicker(editText: TextView) {
+        val cal = Calendar.getInstance()
+        val parts = editText.text.toString().split(":")
+        val hour = parts.getOrNull(0)?.toIntOrNull() ?: cal.get(Calendar.HOUR_OF_DAY)
+        val minute = parts.getOrNull(1)?.toIntOrNull() ?: cal.get(Calendar.MINUTE)
+
+        TimePickerDialog(this, { _, h, m ->
+            val formattedTime = String.format(java.util.Locale.getDefault(), "%02d:%02d", h, m)
+            editText.text = formattedTime
+        }, hour, minute, true).show()
     }
 
     // --- V3.0: ФУНКЦИЯ ПЕРЕПИСАНА (стала suspend) ---
@@ -266,18 +382,9 @@ class MainActivity : AppCompatActivity() {
         var count = binding.countInput.text.toString().toIntOrNull() ?: 5
         val autoLaunch = binding.autoLaunchCheckbox.isChecked
 
-        // 2. Сохраняем выбраные колоды
-        val selectedDeckIds = mutableSetOf<String>()
-        for (i in 0 until binding.deckListContainer.childCount) {
-            val view = binding.deckListContainer.getChildAt(i)
-            if (view is CheckBox) {
-                if (view.isChecked) {
-                    val deckId = view.tag as Long
-                    selectedDeckIds.add(deckId.toString())
-                }
-            }
-        }
-        prefs.edit().putStringSet("selected_deck_ids", selectedDeckIds).apply()
+
+        val selectedDeckIds = prefs.getStringSet("selected_deck_ids", setOf("1")) ?: setOf("1")
+
 
         // 3. V3.0: Проверка лимита вопросов
         val selectedIdsAsLong = selectedDeckIds.mapNotNull { it.toLongOrNull() }
@@ -307,43 +414,36 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        val excludeCalls = binding.checkExcludeCalls.isChecked
+        val excludeAlarms = binding.checkExcludeAlarms.isChecked
+        val excludeMusic = binding.checkExcludeMusic.isChecked
+        val breakEnabled = binding.checkBreakTime.isChecked
+        val breakStart = binding.editBreakStart.text.toString()
+        val breakEnd = binding.editBreakEnd.text.toString()
+
         // 4. Сохраняем финальные значения
         prefs.edit().apply {
             putInt("launch_interval_minutes", interval)
             putInt("count", count) // Сохраняем исправленное значение
             putBoolean("auto_launch_enabled", autoLaunch)
+
+            // (Req 5.0)
+            putBoolean("exclude_calls", excludeCalls)
+            putBoolean("exclude_alarms", excludeAlarms)
+            putBoolean("exclude_music", excludeMusic)
+            putBoolean("break_enabled", breakEnabled)
+            putString("break_start", breakStart)
+            putString("break_end", breakEnd)
+
             apply()
         }
 
         Log.d(DEBUG_TAG, "Настройки сохранены (Interval: $interval, Count: $count, Auto: $autoLaunch)")
+        Log.d(DEBUG_TAG, "Исключения (Calls: $excludeCalls, Alarms: $excludeAlarms, Music: $excludeMusic)")
+        Log.d(DEBUG_TAG, "Перерыв (Enabled: $breakEnabled, $breakStart - $breakEnd)")
         Log.d(DEBUG_TAG, "Выбранные колоды: $selectedDeckIds")
     }
 
-    // --- НОВАЯ ЛОГИКА ДЛЯ КОЛОД ---
-    private fun loadAndDisplayDecks() {
-        val selectedIds = prefs.getStringSet("selected_deck_ids", setOf("1", "2"))?.map { it.toLong() } ?: listOf(1L, 2L)
-
-        lifecycleScope.launch(Dispatchers.IO) {
-            val decks = db.cardDao().getAllDecks()
-            withContext(Dispatchers.Main) {
-                binding.deckListContainer.removeAllViews() // Очищаем старый список
-                if (decks.isEmpty()) {
-                    binding.deckListContainer.addView(createDisabledTextView("Нет колод. Нажмите 'Управление', чтобы добавить."))
-                } else {
-                    binding.deckListContainer.addView(createDisabledTextView("Выберите колоды для блокировки:"))
-                    decks.forEach { deck ->
-                        val checkBox = CheckBox(this@MainActivity).apply {
-                            text = deck.name
-                            tag = deck.id
-                            isChecked = selectedIds.contains(deck.id)
-                            setTextColor(ContextCompat.getColor(this@MainActivity, android.R.color.white))
-                        }
-                        binding.deckListContainer.addView(checkBox)
-                    }
-                }
-            }
-        }
-    }
 
     private fun createDisabledTextView(text: String): TextView {
         return TextView(this).apply {
@@ -371,7 +471,6 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         Log.d(DEBUG_TAG, "MainActivity: onResume")
         updateNextLaunchTime() // Обновляем время при возвращении
-        loadAndDisplayDecks() // Обновляем список колод
         // Повторная проверка разрешений
         checkAndRequestOverlayPermission()
         checkAndRequestExactAlarmPermission()

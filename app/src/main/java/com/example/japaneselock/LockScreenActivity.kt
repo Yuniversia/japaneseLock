@@ -30,6 +30,7 @@ import kotlinx.coroutines.withContext
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.random.Random
+import java.util.Locale
 
 class LockScreenActivity : AppCompatActivity() {
 
@@ -281,7 +282,7 @@ class LockScreenActivity : AppCompatActivity() {
         binding.studyContainer.visibility = View.VISIBLE
 
         binding.studyQuestion.text = card.question
-        binding.studyAnswer.text = card.answer
+        binding.studyAnswer.text = card.answer.replace("/", ", ")
 
         if (card.sound != null) {
             binding.studySound.text = "(${card.sound})"
@@ -404,14 +405,31 @@ class LockScreenActivity : AppCompatActivity() {
             return
         }
 
-        val correctAnswer = when (currentQuizType) {
-            QuizType.QUESTION_TO_ANSWER -> card.answer
-            QuizType.ANSWER_TO_QUESTION -> card.question
-            QuizType.QUESTION_TO_SOUND -> card.sound ?: ""
-            QuizType.STUDY_CARD -> "" // Не должно случиться
-        }
+        // (ИСПРАВЛЕНИЕ V5.1) - Логика множественных ответов
+        val isCorrect: Boolean
 
-        if (answer.equals(correctAnswer, ignoreCase = true)) {
+        if (currentQuizType == QuizType.QUESTION_TO_ANSWER) {
+            // --- Логика для (Вопрос -> Ответ) ---
+            // Только здесь мы делим ответ на несколько вариантов
+            val possibleAnswers = card.answer.split("/")
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+
+            isCorrect = possibleAnswers.any { it.equals(answer, ignoreCase = true) }
+
+        } else {
+            // --- Логика для (Ответ -> Вопрос) или (Вопрос -> Звучание) ---
+            // Здесь мы ожидаем ТОЛЬКО ОДИН правильный ответ
+            val correctAnswer = when (currentQuizType) {
+                QuizType.ANSWER_TO_QUESTION -> card.question
+                QuizType.QUESTION_TO_SOUND -> card.sound ?: ""
+                else -> "" // STUDY_CARD или QUESTION_TO_ANSWER (уже обработан)
+            }
+            isCorrect = answer.equals(correctAnswer, ignoreCase = true)
+        }
+        // --- КОНЕЦ ИСПРАВЛЕНИЯ V5.1 ---
+
+        if (isCorrect) {
             // ПРАВИЛЬНО
             failedAttempts = 0
             currentQuestionIndex++

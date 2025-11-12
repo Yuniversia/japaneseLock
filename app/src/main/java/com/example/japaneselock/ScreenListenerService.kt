@@ -10,9 +10,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
-import android.os.Handler // V3.2: Импорт для задержки
+import android.os.Handler
 import android.os.IBinder
-import android.os.Looper // V3.2: Импорт для задержки
+import android.os.Looper
 import android.telephony.TelephonyManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -22,7 +22,7 @@ class ScreenListenerService : Service() {
     private val DEBUG_TAG = "DEBUG_LOCK"
     private val CHANNEL_ID = "ScreenListenerServiceChannel"
 
-    // --- V3.2: Handler для задержки запуска ---
+    // --- V3.2: Handler для задержки ---
     private val handler = Handler(Looper.getMainLooper())
     // --- Конец V3.2 ---
 
@@ -79,8 +79,10 @@ class ScreenListenerService : Service() {
                             MainActivity.scheduleNextLaunch(context)
                         }
 
-                        // --- V3.2: Логика задержки ---
-                        val runnableToLaunch = {
+                        // --- V3.2: Логика задержки (ИСПРАВЛЕННАЯ В V5.1) ---
+
+                        // Эта "обертка" будет запущена через 500мс
+                        val runnableToLaunch = Runnable {
                             Log.d(DEBUG_TAG, "ScreenListenerService: (Delayed 500ms) Проверка запуска...")
 
                             // (Оригинальная логика if/else)
@@ -100,14 +102,11 @@ class ScreenListenerService : Service() {
                             }
                         }
 
-
-
                         // V3.2: Добавляем задержку 500мс, чтобы AudioManager успел обновиться
                         Log.d(DEBUG_TAG, "ScreenListenerService: Time has come. Posting delayed launch (500ms).")
-                        handler.postDelayed({
-                            Log.d(DEBUG_TAG, "ScreenListenerService: (Delayed) Launching (auto mode on screen on)")
-                            launchAction()
-                        }, 500)
+                        // (ИСПРАВЛЕНИЕ) - мы должны вызывать runnableToLaunch, а не напрямую launchAction()
+                        handler.postDelayed(runnableToLaunch, 500)
+                        // --- КОНЕЦ ИСПРАВЛЕНИЯ V5.1 ---
                     }
                 }
             }
@@ -139,7 +138,7 @@ class ScreenListenerService : Service() {
         Log.d(DEBUG_TAG, "ScreenListenerService: Динамический screenReceiver ЗАРЕГИСТРИРОВАН.")
     }
 
-    override fun onStartCommand(intent: Intent, flags: Int, startId: Int): Int {
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(DEBUG_TAG, "ScreenListenerService: onStartCommand - Сервис запускается.")
 
         if (intent == null) {
